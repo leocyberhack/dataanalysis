@@ -1,0 +1,18 @@
+node_modules/
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.env
+.DS_Store
+dist/
+dist-ssr/
+*.local
+
+# Database files
+backend/data/*.db
+*.sqlite3
+
+# Zeabur files
+.zeabur/
