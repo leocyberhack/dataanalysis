@@ -248,6 +248,9 @@ def delete_data(date: str, db: Session = Depends(get_db)):
     else:
         return {"message": f"{date} 当天没有绑定的数据可删除"}
 
+import os
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
