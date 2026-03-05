@@ -3,6 +3,8 @@ import ReactECharts from 'echarts-for-react';
 import dayjs from 'dayjs';
 import Select from 'react-select';
 import * as XLSX from 'xlsx';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 import { getDates, getProducts, getDetailedData } from '../api';
 
 let compareCache = {
@@ -57,8 +59,10 @@ const Compare = () => {
     const [dates, setDates] = useState([]);
     const [products, setProducts] = useState([]);
 
-    const [startDate, setStartDate] = useState(compareCache.inited ? compareCache.startDate : dayjs().format('YYYY-MM-DD'));
-    const [endDate, setEndDate] = useState(compareCache.inited ? compareCache.endDate : dayjs().format('YYYY-MM-DD'));
+    const [startDate, setStartDate] = useState(compareCache.inited && compareCache.startDate ? dayjs(compareCache.startDate).toDate() : dayjs().toDate());
+    const [endDate, setEndDate] = useState(compareCache.inited && compareCache.endDate ? dayjs(compareCache.endDate).toDate() : dayjs().toDate());
+    const [dateRange, setDateRange] = useState([startDate, endDate]);
+
     const [selectedProducts, setSelectedProducts] = useState(compareCache.selectedProducts);
     const [selectedMetrics, setSelectedMetrics] = useState(compareCache.selectedMetrics);
     const [sortMetric, setSortMetric] = useState(compareCache.sortMetric);
@@ -74,8 +78,8 @@ const Compare = () => {
     useEffect(() => {
         compareCache = {
             inited: true,
-            startDate,
-            endDate,
+            startDate: dayjs(startDate).format('YYYY-MM-DD'),
+            endDate: dayjs(endDate).format('YYYY-MM-DD'),
             selectedProducts,
             selectedMetrics,
             sortMetric,
@@ -124,7 +128,9 @@ const Compare = () => {
         if (!startDate || !endDate) return;
         setLoading(true);
         try {
-            const data = await getDetailedData(startDate, endDate, selectedProducts);
+            const startStr = dayjs(startDate).format('YYYY-MM-DD');
+            const endStr = dayjs(endDate).format('YYYY-MM-DD');
+            const data = await getDetailedData(startStr, endStr, selectedProducts);
             setRawData(data);
         } catch (e) {
             console.error(e);
@@ -134,7 +140,8 @@ const Compare = () => {
     };
 
     const handleReset = () => {
-        const today = dayjs().format('YYYY-MM-DD');
+        const today = dayjs().toDate();
+        setDateRange([today, today]);
         setStartDate(today);
         setEndDate(today);
         setSelectedProducts([]);
@@ -160,7 +167,14 @@ const Compare = () => {
         });
 
         const wb = XLSX.utils.table_to_book(tableClone, { raw: true });
-        XLSX.writeFile(wb, `多维分析与比较数据表_${dayjs().format('YYYYMMDD')}.xlsx`);
+        XLSX.writeFile(wb, `数据导出_${dayjs(startDate).format('YYYY-MM-DD')}_至_${dayjs(endDate).format('YYYY-MM-DD')}.xlsx`);
+    };
+
+    const handleDateRangeChange = (update) => {
+        setDateRange(update);
+        const [start, end] = update;
+        if (start) setStartDate(start);
+        if (end) setEndDate(end);
     };
 
     const handleProductsChange = (selectedOptions) => {
@@ -394,14 +408,50 @@ const Compare = () => {
             </div>
 
             <div className="glass-panel mb-32">
-                <div className="grid-2">
-                    <div className="input-group">
-                        <label className="input-label">开始日期</label>
-                        <input type="date" className="input" value={startDate} onChange={e => setStartDate(e.target.value)} />
-                    </div>
-                    <div className="input-group">
-                        <label className="input-label">结束日期</label>
-                        <input type="date" className="input" value={endDate} onChange={e => setEndDate(e.target.value)} />
+                <style>
+                    {`
+                    .react-datepicker-wrapper {
+                        width: 100%;
+                    }
+                    .react-datepicker__input-container input {
+                        width: 100%;
+                        background: var(--bg-light);
+                        border: 1px solid var(--glass-border);
+                        border-radius: 8px;
+                        padding: 12px 16px;
+                        font-family: inherit;
+                        font-size: 15px;
+                        color: var(--text-main);
+                        outline: none;
+                        transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+                        cursor: pointer;
+                    }
+                    .react-datepicker__input-container input:hover {
+                        border-color: rgba(224, 122, 95, 0.4);
+                        background: rgba(255, 255, 255, 0.9);
+                    }
+                    .react-datepicker__input-container input:focus {
+                        border-color: var(--accent);
+                        box-shadow: 0 0 0 3px rgba(224, 122, 95, 0.15);
+                        background: #ffffff;
+                    }
+                    `}
+                </style>
+                <div style={{ display: 'flex', gap: '24px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                    <div className="input-group" style={{ flex: '1 1 300px' }}>
+                        <label className="input-label" style={{ marginBottom: '8px' }}>目标日期范围</label>
+                        <DatePicker
+                            selectsRange={true}
+                            startDate={dateRange[0]}
+                            endDate={dateRange[1]}
+                            onChange={handleDateRangeChange}
+                            dateFormat="yyyy-MM-dd"
+                            isClearable={false}
+                            placeholderText="请选择开始和结束日期..."
+                            showPopperArrow={false}
+                            className="input"
+                            style={{ width: '100%' }}
+                        />
                     </div>
                 </div>
 
