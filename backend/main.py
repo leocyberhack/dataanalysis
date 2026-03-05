@@ -177,6 +177,26 @@ def get_dates(db: Session = Depends(get_db)):
     dates = db.query(models.DailyData.date).distinct().order_by(models.DailyData.date.desc()).all()
     return {"dates": [d[0].strftime("%Y-%m-%d") for d in dates]}
 
+@app.get("/date_status")
+def get_date_status(db: Session = Depends(get_db)):
+    results = db.query(
+        models.DailyData.date,
+        func.sum(models.DailyData.pay_amount).label('pay_amount'),
+        func.sum(models.DailyData.profit).label('profit')
+    ).group_by(models.DailyData.date).all()
+    
+    status = {}
+    for r in results:
+        date_str = r.date.strftime("%Y-%m-%d")
+        pay_amount = float(r.pay_amount or 0)
+        profit = float(r.profit or 0)
+        # Using abs(profit) > 0.01 to handle precision issues
+        status[date_str] = {
+            "commodity": pay_amount > 0,
+            "order": abs(profit) > 0.01
+        }
+    return status
+
 @app.get("/products")
 def get_products(startDate: str = None, endDate: str = None, db: Session = Depends(get_db)):
     query = db.query(models.Product)

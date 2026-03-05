@@ -1,10 +1,21 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { UploadCloud, Trash2 } from 'lucide-react';
-import { uploadData, uploadOrderData, deleteCommodityData, deleteOrderData } from '../api';
+import { uploadData, uploadOrderData, deleteCommodityData, deleteOrderData, getDateStatus } from '../api';
 import dayjs from 'dayjs';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 
 const Upload = () => {
-    const [date, setDate] = useState(dayjs().format('YYYY-MM-DD'));
+    const [date, setDate] = useState(dayjs().toDate());
+    const [dateStatus, setDateStatus] = useState({});
+
+    const refreshDateStatus = () => {
+        getDateStatus().then(d => setDateStatus(d)).catch(e => console.error(e));
+    };
+
+    useEffect(() => {
+        refreshDateStatus();
+    }, []);
 
     // Commodity Data state
     const [comFile, setComFile] = useState(null);
@@ -29,9 +40,10 @@ const Upload = () => {
         setComLoading(true);
         setComMessage('');
         try {
-            await uploadData(date, comFile);
+            await uploadData(dayjs(date).format('YYYY-MM-DD'), comFile);
             setComMessage('✅ 商品数据上传成功！');
             setComFile(null);
+            refreshDateStatus();
         } catch (err) {
             setComMessage('❌ 上传失败: ' + (err.response?.data?.detail || err.message));
         } finally {
@@ -47,9 +59,10 @@ const Upload = () => {
         setOrderLoading(true);
         setOrderMessage('');
         try {
-            await uploadOrderData(date, orderFile);
+            await uploadOrderData(dayjs(date).format('YYYY-MM-DD'), orderFile);
             setOrderMessage('✅ 订单数据上传成功！');
             setOrderFile(null);
+            refreshDateStatus();
         } catch (err) {
             setOrderMessage('❌ 上传失败: ' + (err.response?.data?.detail || err.message));
         } finally {
@@ -62,14 +75,16 @@ const Upload = () => {
             setComMessage('请先选择日期');
             return;
         }
-        if (!window.confirm(`确定要清空 [${date}] 这天的商品常规数据吗？此操作无法撤销。`)) {
+        const dateStr = dayjs(date).format('YYYY-MM-DD');
+        if (!window.confirm(`确定要清空 [${dateStr}] 这天的商品常规数据吗？此操作无法撤销。`)) {
             return;
         }
         setComLoading(true);
         setComMessage('');
         try {
-            const res = await deleteCommodityData(date);
+            const res = await deleteCommodityData(dateStr);
             setComMessage(`✅ ${res.message}`);
+            refreshDateStatus();
         } catch (err) {
             setComMessage('❌ 删除失败: ' + (err.response?.data?.detail || err.message));
         } finally {
@@ -82,14 +97,16 @@ const Upload = () => {
             setOrderMessage('请先选择日期');
             return;
         }
-        if (!window.confirm(`确定要清空 [${date}] 这天的订单利润数据吗？此操作无法撤销。`)) {
+        const dateStr = dayjs(date).format('YYYY-MM-DD');
+        if (!window.confirm(`确定要清空 [${dateStr}] 这天的订单利润数据吗？此操作无法撤销。`)) {
             return;
         }
         setOrderLoading(true);
         setOrderMessage('');
         try {
-            const res = await deleteOrderData(date);
+            const res = await deleteOrderData(dateStr);
             setOrderMessage(`✅ ${res.message}`);
+            refreshDateStatus();
         } catch (err) {
             setOrderMessage('❌ 删除失败: ' + (err.response?.data?.detail || err.message));
         } finally {
@@ -157,6 +174,7 @@ const Upload = () => {
         }
 
         setBatchLoading(false);
+        refreshDateStatus();
         if (failCount === 0 && successCount > 0) {
             setBatchMessage(`✅ 成功批量上传 ${successCount} 个文件！`);
         } else if (successCount > 0) {
@@ -173,14 +191,87 @@ const Upload = () => {
             </div>
 
             <div style={{ maxWidth: '800px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <style>
+                    {`
+                    .custom-datepicker-wrapper .react-datepicker-wrapper {
+                        width: 100%;
+                    }
+                    .custom-datepicker-wrapper .react-datepicker {
+                        font-family: inherit;
+                        border: 1px solid var(--glass-border);
+                        border-radius: 12px;
+                        box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+                        padding: 8px;
+                    }
+                    .custom-datepicker-wrapper .react-datepicker__month-container {
+                        width: 320px;
+                    }
+                    .custom-datepicker-wrapper .react-datepicker__day-name, 
+                    .custom-datepicker-wrapper .react-datepicker__day, 
+                    .custom-datepicker-wrapper .react-datepicker__time-name {
+                        width: 2.5rem;
+                        line-height: 2.5rem;
+                        margin: 0.166rem;
+                    }
+                    .custom-datepicker-wrapper .react-datepicker__input-container input {
+                        width: 100%;
+                        background: var(--bg-light);
+                        border: 1px solid var(--glass-border);
+                        border-radius: 8px;
+                        padding: 12px 16px;
+                        font-family: inherit;
+                        font-size: 15px;
+                        color: var(--text-main);
+                        outline: none;
+                        transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+                        cursor: pointer;
+                    }
+                    .custom-datepicker-wrapper .react-datepicker__input-container input:hover {
+                        border-color: rgba(224, 122, 95, 0.4);
+                        background: rgba(255, 255, 255, 0.9);
+                    }
+                    .custom-datepicker-wrapper .react-datepicker__input-container input:focus {
+                        border-color: var(--accent);
+                        box-shadow: 0 0 0 3px rgba(224, 122, 95, 0.15);
+                        background: #ffffff;
+                    }
+                    `}
+                </style>
                 <div className="glass-panel" style={{ padding: '24px' }}>
-                    <h3 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: '600' }}>全局目标日期</h3>
-                    <div className="input-group">
-                        <input
-                            type="date"
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+                        <div>
+                            <h3 style={{ fontSize: '18px', fontWeight: '600' }}>全局目标日期</h3>
+                        </div>
+                        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', fontSize: '12px', color: 'var(--text-muted)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#60A5FA' }} /> 商品数据
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#F59E0B' }} /> 利润数据
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="input-group custom-datepicker-wrapper" style={{ position: 'relative', zIndex: 1000 }}>
+                        <DatePicker
+                            selected={date}
+                            onChange={(d) => setDate(d)}
+                            dateFormat="yyyy-MM-dd"
                             className="input"
-                            value={date}
-                            onChange={(e) => setDate(e.target.value)}
+                            isClearable={false}
+                            renderDayContents={(day, dateObj) => {
+                                const dateStr = dayjs(dateObj).format('YYYY-MM-DD');
+                                const status = dateStatus[dateStr];
+                                return (
+                                    <div style={{ position: 'relative', height: '100%', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                                        <span style={{ lineHeight: '1.2' }}>{day}</span>
+                                        <div style={{ position: 'absolute', bottom: '2px', display: 'flex', gap: '4px', justifyContent: 'center', width: '100%' }}>
+                                            {status?.commodity && <div style={{ width: '4px', height: '4px', borderRadius: '50%', backgroundColor: '#60A5FA' }} title="已上传商品数据" />}
+                                            {status?.order && <div style={{ width: '4px', height: '4px', borderRadius: '50%', backgroundColor: '#F59E0B' }} title="已上传利润数据" />}
+                                        </div>
+                                    </div>
+                                );
+                            }}
                         />
                     </div>
                 </div>

@@ -27,6 +27,11 @@ export const getDates = async () => {
   return res.data.dates;
 };
 
+export const getDateStatus = async () => {
+  const res = await api.get('/date_status');
+  return res.data;
+};
+
 export const getProducts = async (startDate, endDate) => {
   const params = {};
   if (startDate && endDate) {

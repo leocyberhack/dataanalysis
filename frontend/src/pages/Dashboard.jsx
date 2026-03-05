@@ -4,7 +4,7 @@ import { ArrowUpRight, ArrowDownRight, Minus, AlertCircle } from 'lucide-react';
 import dayjs from 'dayjs';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
-import { getDates, getSummary, getDetailedData } from '../api';
+import { getDates, getSummary, getDetailedData, getDateStatus } from '../api';
 
 const Dashboard = () => {
     const [dates, setDates] = useState([]);
@@ -12,9 +12,11 @@ const Dashboard = () => {
     const [confirmedRange, setConfirmedRange] = useState([null, null]);
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [dateStatus, setDateStatus] = useState({});
 
     useEffect(() => {
         fetchDates();
+        getDateStatus().then(d => setDateStatus(d)).catch(console.error);
     }, []);
 
     useEffect(() => {
@@ -125,6 +127,23 @@ const Dashboard = () => {
                         .dashboard-datepicker-wrapper .react-datepicker-wrapper {
                             width: 260px;
                         }
+                        .dashboard-datepicker-wrapper .react-datepicker {
+                            font-family: inherit;
+                            border: 1px solid var(--glass-border);
+                            border-radius: 12px;
+                            box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+                            padding: 8px;
+                        }
+                        .dashboard-datepicker-wrapper .react-datepicker__month-container {
+                            width: 320px;
+                        }
+                        .dashboard-datepicker-wrapper .react-datepicker__day-name, 
+                        .dashboard-datepicker-wrapper .react-datepicker__day, 
+                        .dashboard-datepicker-wrapper .react-datepicker__time-name {
+                            width: 2.5rem;
+                            line-height: 2.5rem;
+                            margin: 0.166rem;
+                        }
                         .dashboard-datepicker-wrapper .react-datepicker__input-container input {
                             width: 100%;
                             background: rgba(255, 255, 255, 0.9);
@@ -158,6 +177,19 @@ const Dashboard = () => {
                             isClearable={false}
                             placeholderText="请选择日期或范围"
                             showPopperArrow={false}
+                            renderDayContents={(day, dateObj) => {
+                                const dateStr = dayjs(dateObj).format('YYYY-MM-DD');
+                                const status = dateStatus[dateStr];
+                                return (
+                                    <div style={{ position: 'relative', height: '100%', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                                        <span style={{ lineHeight: '1.2' }}>{day}</span>
+                                        <div style={{ position: 'absolute', bottom: '2px', display: 'flex', gap: '3px', justifyContent: 'center', width: '100%' }}>
+                                            {status?.commodity && <div style={{ width: '4px', height: '4px', borderRadius: '50%', backgroundColor: '#60A5FA' }} title="已上传商品数据" />}
+                                            {status?.order && <div style={{ width: '4px', height: '4px', borderRadius: '50%', backgroundColor: '#F59E0B' }} title="已上传利润数据" />}
+                                        </div>
+                                    </div>
+                                );
+                            }}
                         />
                     </div>
                     <button
