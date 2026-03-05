@@ -199,16 +199,29 @@ const Upload = () => {
                     .custom-datepicker-wrapper .react-datepicker {
                         font-family: inherit;
                         border: 1px solid var(--glass-border);
-                        border-radius: 12px;
-                        box-shadow: 0 4px 20px rgba(0,0,0,0.05);
-                        padding: 8px;
+                        border-radius: 16px;
+                        box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+                        padding: 16px;
+                        font-size: 1.2rem;
+                    }
+                    .custom-datepicker-wrapper .react-datepicker__current-month {
+                        font-size: 1.5em;
+                        padding-bottom: 8px;
+                    }
+                    .custom-datepicker-wrapper .react-datepicker__navigation {
+                        top: 20px;
+                    }
+                    .custom-datepicker-wrapper .react-datepicker__navigation-icon::before {
+                        border-width: 3px 3px 0 0;
+                        height: 12px;
+                        width: 12px;
                     }
                     .custom-datepicker-wrapper .react-datepicker__day-name, 
                     .custom-datepicker-wrapper .react-datepicker__day, 
                     .custom-datepicker-wrapper .react-datepicker__time-name {
-                        width: 2.5rem;
-                        line-height: 2.5rem;
-                        margin: 0.166rem;
+                        width: 4.5rem;
+                        line-height: 4.5rem;
+                        margin: 0.2rem;
                     }
                     .custom-datepicker-wrapper .react-datepicker__input-container input {
                         width: 100%;
@@ -239,12 +252,12 @@ const Upload = () => {
                         <div>
                             <h3 style={{ fontSize: '18px', fontWeight: '600' }}>全局目标日期</h3>
                         </div>
-                        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', fontSize: '12px', color: 'var(--text-muted)' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#60A5FA' }} /> 商品数据
+                        <div style={{ display: 'flex', gap: '16px', alignItems: 'center', fontSize: '14px', color: 'var(--text-muted)' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#60A5FA' }} /> 商品数据
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: '#F59E0B' }} /> 利润数据
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#F59E0B' }} /> 利润数据
                             </div>
                         </div>
                     </div>
@@ -262,9 +275,9 @@ const Upload = () => {
                                 return (
                                     <div style={{ position: 'relative', height: '100%', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                                         <span style={{ lineHeight: '1.2' }}>{day}</span>
-                                        <div style={{ position: 'absolute', bottom: '2px', display: 'flex', gap: '4px', justifyContent: 'center', width: '100%' }}>
-                                            {status?.commodity && <div style={{ width: '4px', height: '4px', borderRadius: '50%', backgroundColor: '#60A5FA' }} title="已上传商品数据" />}
-                                            {status?.order && <div style={{ width: '4px', height: '4px', borderRadius: '50%', backgroundColor: '#F59E0B' }} title="已上传利润数据" />}
+                                        <div style={{ position: 'absolute', bottom: '4px', display: 'flex', gap: '6px', justifyContent: 'center', width: '100%' }}>
+                                            {status?.commodity && <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#60A5FA' }} title="已上传商品数据" />}
+                                            {status?.order && <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#F59E0B' }} title="已上传利润数据" />}
                                         </div>
                                     </div>
                                 );

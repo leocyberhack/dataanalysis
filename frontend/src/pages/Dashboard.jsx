@@ -130,16 +130,29 @@ const Dashboard = () => {
                         .dashboard-datepicker-wrapper .react-datepicker {
                             font-family: inherit;
                             border: 1px solid var(--glass-border);
-                            border-radius: 12px;
-                            box-shadow: 0 4px 20px rgba(0,0,0,0.05);
-                            padding: 8px;
+                            border-radius: 16px;
+                            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+                            padding: 16px;
+                            font-size: 1.2rem;
+                        }
+                        .dashboard-datepicker-wrapper .react-datepicker__current-month {
+                            font-size: 1.5em;
+                            padding-bottom: 8px;
+                        }
+                        .dashboard-datepicker-wrapper .react-datepicker__navigation {
+                            top: 20px;
+                        }
+                        .dashboard-datepicker-wrapper .react-datepicker__navigation-icon::before {
+                            border-width: 3px 3px 0 0;
+                            height: 12px;
+                            width: 12px;
                         }
                         .dashboard-datepicker-wrapper .react-datepicker__day-name, 
                         .dashboard-datepicker-wrapper .react-datepicker__day, 
                         .dashboard-datepicker-wrapper .react-datepicker__time-name {
-                            width: 2.5rem;
-                            line-height: 2.5rem;
-                            margin: 0.166rem;
+                            width: 4rem;
+                            line-height: 4rem;
+                            margin: 0.2rem;
                         }
                         .dashboard-datepicker-wrapper .react-datepicker__input-container input {
                             width: 100%;
@@ -180,9 +193,9 @@ const Dashboard = () => {
                                 return (
                                     <div style={{ position: 'relative', height: '100%', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                                         <span style={{ lineHeight: '1.2' }}>{day}</span>
-                                        <div style={{ position: 'absolute', bottom: '2px', display: 'flex', gap: '3px', justifyContent: 'center', width: '100%' }}>
-                                            {status?.commodity && <div style={{ width: '4px', height: '4px', borderRadius: '50%', backgroundColor: '#60A5FA' }} title="已上传商品数据" />}
-                                            {status?.order && <div style={{ width: '4px', height: '4px', borderRadius: '50%', backgroundColor: '#F59E0B' }} title="已上传利润数据" />}
+                                        <div style={{ position: 'absolute', bottom: '4px', display: 'flex', gap: '5px', justifyContent: 'center', width: '100%' }}>
+                                            {status?.commodity && <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#60A5FA' }} title="已上传商品数据" />}
+                                            {status?.order && <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#F59E0B' }} title="已上传利润数据" />}
                                         </div>
                                     </div>
                                 );
