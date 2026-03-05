@@ -2,8 +2,10 @@ import { useState, useEffect } from 'react';
 import { UploadCloud, Trash2 } from 'lucide-react';
 import { uploadData, uploadOrderData, deleteCommodityData, deleteOrderData, getDateStatus } from '../api';
 import dayjs from 'dayjs';
-import DatePicker from 'react-datepicker';
+import DatePicker, { registerLocale } from 'react-datepicker';
+import { zhCN } from 'date-fns/locale';
 import 'react-datepicker/dist/react-datepicker.css';
+registerLocale('zh-CN', zhCN);
 
 const Upload = () => {
     const [date, setDate] = useState(dayjs().toDate());
@@ -267,6 +269,7 @@ const Upload = () => {
                             selected={date}
                             onChange={(d) => setDate(d)}
                             dateFormat="yyyy-MM-dd"
+                            locale="zh-CN"
                             className="input"
                             isClearable={false}
                             renderDayContents={(day, dateObj) => {

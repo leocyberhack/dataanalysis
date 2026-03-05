@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { ArrowUpRight, ArrowDownRight, Minus, AlertCircle } from 'lucide-react';
 import dayjs from 'dayjs';
-import DatePicker from 'react-datepicker';
+import DatePicker, { registerLocale } from 'react-datepicker';
+import { zhCN } from 'date-fns/locale';
 import 'react-datepicker/dist/react-datepicker.css';
 import { getDates, getSummary, getDetailedData, getDateStatus } from '../api';
+registerLocale('zh-CN', zhCN);
 
 const Dashboard = () => {
     const [dates, setDates] = useState([]);
@@ -184,6 +186,7 @@ const Dashboard = () => {
                             endDate={dateRange[1]}
                             onChange={handleDateRangeChange}
                             dateFormat="yyyy-MM-dd"
+                            locale="zh-CN"
                             isClearable={false}
                             placeholderText="请选择日期或范围"
                             showPopperArrow={false}

@@ -3,9 +3,11 @@ import ReactECharts from 'echarts-for-react';
 import dayjs from 'dayjs';
 import Select from 'react-select';
 import * as XLSX from 'xlsx';
-import DatePicker from 'react-datepicker';
+import DatePicker, { registerLocale } from 'react-datepicker';
+import { zhCN } from 'date-fns/locale';
 import 'react-datepicker/dist/react-datepicker.css';
-import { getDates, getProducts, getDetailedData } from '../api';
+import { getDates, getProducts, getDetailedData, getDateStatus } from '../api';
+registerLocale('zh-CN', zhCN);
 
 let compareCache = {
     inited: false,
@@ -58,6 +60,7 @@ const ALL_METRICS = {
 const Compare = () => {
     const [dates, setDates] = useState([]);
     const [products, setProducts] = useState([]);
+    const [dateStatus, setDateStatus] = useState({});
 
     const [startDate, setStartDate] = useState(compareCache.inited && compareCache.startDate ? dayjs(compareCache.startDate).toDate() : dayjs().toDate());
     const [endDate, setEndDate] = useState(compareCache.inited && compareCache.endDate ? dayjs(compareCache.endDate).toDate() : dayjs().toDate());
@@ -119,6 +122,7 @@ const Compare = () => {
 
     useEffect(() => {
         getDates().then(d => setDates(d)).catch(e => console.error(e));
+        getDateStatus().then(d => setDateStatus(d)).catch(e => console.error(e));
     }, []);
 
     useEffect(() => {
@@ -430,10 +434,37 @@ const Compare = () => {
             <div className="glass-panel mb-32">
                 <style>
                     {`
-                    .react-datepicker-wrapper {
+                    .compare-datepicker-wrapper .react-datepicker-wrapper {
                         width: 100%;
                     }
-                    .react-datepicker__input-container input {
+                    .compare-datepicker-wrapper .react-datepicker {
+                        font-family: inherit;
+                        border: 1px solid var(--glass-border);
+                        border-radius: 16px;
+                        box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+                        padding: 16px;
+                        font-size: 1.2rem;
+                    }
+                    .compare-datepicker-wrapper .react-datepicker__current-month {
+                        font-size: 1.5em;
+                        padding-bottom: 8px;
+                    }
+                    .compare-datepicker-wrapper .react-datepicker__navigation {
+                        top: 20px;
+                    }
+                    .compare-datepicker-wrapper .react-datepicker__navigation-icon::before {
+                        border-width: 3px 3px 0 0;
+                        height: 12px;
+                        width: 12px;
+                    }
+                    .compare-datepicker-wrapper .react-datepicker__day-name,
+                    .compare-datepicker-wrapper .react-datepicker__day,
+                    .compare-datepicker-wrapper .react-datepicker__time-name {
+                        width: 4rem;
+                        line-height: 4rem;
+                        margin: 0.2rem;
+                    }
+                    .compare-datepicker-wrapper .react-datepicker__input-container input {
                         width: 100%;
                         background: var(--bg-light);
                         border: 1px solid var(--glass-border);
@@ -446,11 +477,11 @@ const Compare = () => {
                         transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
                         cursor: pointer;
                     }
-                    .react-datepicker__input-container input:hover {
+                    .compare-datepicker-wrapper .react-datepicker__input-container input:hover {
                         border-color: rgba(224, 122, 95, 0.4);
                         background: rgba(255, 255, 255, 0.9);
                     }
-                    .react-datepicker__input-container input:focus {
+                    .compare-datepicker-wrapper .react-datepicker__input-container input:focus {
                         border-color: var(--accent);
                         box-shadow: 0 0 0 3px rgba(224, 122, 95, 0.15);
                         background: #ffffff;
@@ -458,19 +489,39 @@ const Compare = () => {
                     `}
                 </style>
                 <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                    <div className="input-group" style={{ flex: '1 1 300px' }}>
-                        <label className="input-label" style={{ marginBottom: '8px' }}>目标日期范围</label>
+                    <div className="input-group compare-datepicker-wrapper" style={{ flex: '1 1 300px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                            <label className="input-label">目标日期范围</label>
+                            <div style={{ display: 'flex', gap: '12px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#60A5FA' }} />商品数据</div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#F59E0B' }} />利润数据</div>
+                            </div>
+                        </div>
                         <DatePicker
                             selectsRange={true}
                             startDate={dateRange[0]}
                             endDate={dateRange[1]}
                             onChange={handleDateRangeChange}
                             dateFormat="yyyy-MM-dd"
+                            locale="zh-CN"
                             isClearable={false}
                             placeholderText="请选择开始和结束日期..."
                             showPopperArrow={false}
                             className="input"
                             style={{ width: '100%' }}
+                            renderDayContents={(day, dateObj) => {
+                                const dateStr = dayjs(dateObj).format('YYYY-MM-DD');
+                                const status = dateStatus[dateStr];
+                                return (
+                                    <div style={{ position: 'relative', height: '100%', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                                        <span style={{ lineHeight: '1.2' }}>{day}</span>
+                                        <div style={{ position: 'absolute', bottom: '4px', display: 'flex', gap: '6px', justifyContent: 'center', width: '100%' }}>
+                                            {status?.commodity && <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#60A5FA' }} title="已上传商品数据" />}
+                                            {status?.order && <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#F59E0B' }} title="已上传利润数据" />}
+                                        </div>
+                                    </div>
+                                );
+                            }}
                         />
                     </div>
                     <button
