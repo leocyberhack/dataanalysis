@@ -184,9 +184,17 @@ const Compare = () => {
 
     const handleDateRangeChange = (update) => {
         setDateRange(update);
-        const [start, end] = update;
-        if (start) setStartDate(start);
-        if (end) setEndDate(end);
+    };
+
+    const handleConfirmDate = () => {
+        const [start, end] = dateRange;
+        if (start && end) {
+            setStartDate(start);
+            setEndDate(end);
+        } else if (start) {
+            setStartDate(start);
+            setEndDate(start);
+        }
     };
 
     const handleProductsChange = (selectedOptions) => {
@@ -449,7 +457,7 @@ const Compare = () => {
                     }
                     `}
                 </style>
-                <div style={{ display: 'flex', gap: '24px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
                     <div className="input-group" style={{ flex: '1 1 300px' }}>
                         <label className="input-label" style={{ marginBottom: '8px' }}>目标日期范围</label>
                         <DatePicker
@@ -465,6 +473,14 @@ const Compare = () => {
                             style={{ width: '100%' }}
                         />
                     </div>
+                    <button
+                        className="btn"
+                        style={{ padding: '12px 24px', marginBottom: '0px', flex: '0 0 auto', justifyContent: 'center' }}
+                        onClick={handleConfirmDate}
+                        disabled={!dateRange[0]}
+                    >
+                        确认此日期
+                    </button>
                 </div>
 
                 <div className="input-group" style={{ marginTop: '20px' }}>
