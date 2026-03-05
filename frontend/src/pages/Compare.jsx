@@ -209,6 +209,9 @@ const Compare = () => {
         setSelectedMetrics(selectedOptions ? selectedOptions.map(o => o.value) : []);
     };
 
+    // When nothing is selected, treat it as "all metrics"
+    const activeMetrics = selectedMetrics.length > 0 ? selectedMetrics : Object.keys(ALL_METRICS);
+
     // 聚合数据：根据所选商品，计算在选定日期范围内的合计/平均/最大/最小
     const aggregatedData = useMemo(() => {
         if (!rawData.length) return [];
@@ -292,8 +295,8 @@ const Compare = () => {
     };
 
     const getLineChartOption = () => {
-        if (!rawData.length || selectedMetrics.length !== 1) return {};
-        const activeMetric = selectedMetrics[0];
+        if (!rawData.length || activeMetrics.length !== 1) return {};
+        const activeMetric = activeMetrics[0];
 
         const xAxisDates = Array.from(new Set(rawData.map(d => d.date))).sort();
         const series = [];
@@ -334,8 +337,8 @@ const Compare = () => {
     };
 
     const getBarChartOption = () => {
-        if (!aggregatedData.length || selectedMetrics.length !== 1) return {};
-        const activeMetric = selectedMetrics[0];
+        if (!aggregatedData.length || activeMetrics.length !== 1) return {};
+        const activeMetric = activeMetrics[0];
 
         // Get Top 10 by average value for this metric
         const top10 = [...aggregatedData]
@@ -364,8 +367,8 @@ const Compare = () => {
     };
 
     const getPieChartOption = () => {
-        if (!aggregatedData.length || selectedMetrics.length !== 1) return {};
-        const activeMetric = selectedMetrics[0];
+        if (!aggregatedData.length || activeMetrics.length !== 1) return {};
+        const activeMetric = activeMetrics[0];
 
         const top10 = [...aggregatedData]
             .sort((a, b) => b[activeMetric + '_total'] - a[activeMetric + '_total'])
@@ -595,8 +598,9 @@ const Compare = () => {
                         options={Object.entries(ALL_METRICS).map(([k, v]) => ({ value: k, label: v }))}
                         value={selectedMetrics.map(k => ({ value: k, label: ALL_METRICS[k] }))}
                         onChange={handleMetricsChange}
-                        placeholder="搜索并选择要关注的数据维度..."
+                        placeholder={selectedMetrics.length === 0 ? "默认全部维度（可搜索筛选）" : "搜索并选择要关注的数据维度..."}
                         noOptionsMessage={() => "未找到该维度"}
+                        maxMenuHeight={320}
                         formatOptionLabel={(option) => {
                             if (option.value === 'profit') {
                                 return (
@@ -662,7 +666,7 @@ const Compare = () => {
 
             {aggregatedData.length > 0 && (
                 <>
-                    {selectedMetrics.length === 1 && (
+                    {activeMetrics.length === 1 && (
                         <div className="glass-panel mb-32">
                             <h3 style={{ marginBottom: '20px' }}>可视化分析引擎</h3>
                             <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '20px' }}>
@@ -712,7 +716,7 @@ const Compare = () => {
                                     <tr>
                                         <th>商品名称</th>
                                         <th>天数</th>
-                                        {selectedMetrics.map(mKey => (
+                                        {activeMetrics.map(mKey => (
                                             <th key={mKey} colSpan="4" style={{ textAlign: 'center' }}>
                                                 {ALL_METRICS[mKey]}
                                             </th>
@@ -721,7 +725,7 @@ const Compare = () => {
                                     <tr>
                                         <th></th>
                                         <th></th>
-                                        {selectedMetrics.map(mKey => (
+                                        {activeMetrics.map(mKey => (
                                             <React.Fragment key={mKey + '_sub'}>
                                                 {renderSortHeader('平均', mKey + '_avg', true)}
                                                 {renderSortHeader('中位数', mKey + '_median')}
@@ -738,7 +742,7 @@ const Compare = () => {
                                                 {row.product_name}
                                             </td>
                                             <td>{row.days_count}</td>
-                                            {selectedMetrics.map(mKey => (
+                                            {activeMetrics.map(mKey => (
                                                 <React.Fragment key={mKey + '_val'}>
                                                     <td style={{ color: 'var(--accent)' }}>
                                                         {row[mKey + '_avg'].toFixed(2)}
