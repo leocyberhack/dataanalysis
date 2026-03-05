@@ -16,6 +16,11 @@ const Upload = () => {
     const [orderLoading, setOrderLoading] = useState(false);
     const [orderMessage, setOrderMessage] = useState('');
 
+    // Batch Data state
+    const [batchFiles, setBatchFiles] = useState([]);
+    const [batchLoading, setBatchLoading] = useState(false);
+    const [batchMessage, setBatchMessage] = useState('');
+
     const handleUploadCom = async () => {
         if (!date || !comFile) {
             setComMessage('请选择日期和文件');
@@ -89,6 +94,75 @@ const Upload = () => {
             setOrderMessage('❌ 删除失败: ' + (err.response?.data?.detail || err.message));
         } finally {
             setOrderLoading(false);
+        }
+    };
+
+    const parseFileName = (filename) => {
+        const base = filename.replace(/\.[^/.]+$/, "");
+        const match = base.match(/(商品排行|散客单组).*?(20\d{2})[-_年/]?(\d{1,2})[-_月/]?(\d{1,2})/);
+        if (match) {
+            const type = match[1] === '商品排行' ? 'commodity' : 'order';
+            const year = match[2];
+            const month = match[3].padStart(2, '0');
+            const day = match[4].padStart(2, '0');
+            const date = `${year}-${month}-${day}`;
+            return { type, date };
+        }
+        return null;
+    };
+
+    const handleBatchFilesSelect = (e) => {
+        const files = Array.from(e.target.files);
+        const parsed = files.map(file => {
+            const info = parseFileName(file.name);
+            return {
+                file,
+                info,
+                status: 'pending'
+            };
+        });
+        setBatchFiles(parsed);
+        setBatchMessage('');
+    };
+
+    const handleBatchUpload = async () => {
+        setBatchLoading(true);
+        setBatchMessage('');
+        let successCount = 0;
+        let failCount = 0;
+        const newFiles = [...batchFiles];
+
+        for (let i = 0; i < newFiles.length; i++) {
+            const item = newFiles[i];
+            if (!item.info) {
+                item.status = 'fail';
+                item.error = '无法识别文件名与日期';
+                failCount++;
+                continue;
+            }
+            try {
+                if (item.info.type === 'commodity') {
+                    await uploadData(item.info.date, item.file);
+                } else {
+                    await uploadOrderData(item.info.date, item.file);
+                }
+                item.status = 'success';
+                successCount++;
+            } catch (err) {
+                item.status = 'fail';
+                item.error = err.response?.data?.detail || err.message;
+                failCount++;
+            }
+            setBatchFiles([...newFiles]);
+        }
+
+        setBatchLoading(false);
+        if (failCount === 0 && successCount > 0) {
+            setBatchMessage(`✅ 成功批量上传 ${successCount} 个文件！`);
+        } else if (successCount > 0) {
+            setBatchMessage(`⚠️ 上传完成: ${successCount} 成功, ${failCount} 失败`);
+        } else {
+            setBatchMessage(`❌ 全部上传失败或存在未识别文件。`);
         }
     };
 
@@ -223,6 +297,78 @@ const Upload = () => {
                             </div>
                         )}
                     </div>
+                </div>
+
+                {/* Batch Upload Option */}
+                <div className="glass-panel" style={{ marginTop: '0px' }}>
+                    <h3 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: '600' }}>3. 批量智能上传 (自动识别日期和类型)</h3>
+                    <p style={{ marginBottom: '16px', color: 'var(--text-muted)', fontSize: '14px' }}>
+                        一次性选择多个 Excel 文件（通过文件名识别）。请保证文件命名规则包含关键词与日期，支持 <b>商品排行yyyy/mm/dd</b> 或 <b>散客单组yyyy/mm/dd</b>（符号可以为-、_或无符号）。
+                    </p>
+
+                    <div className="input-group mb-24">
+                        <label className={`upload-area ${batchFiles.length > 0 ? 'drag-active' : ''}`}>
+                            <UploadCloud size={48} className="upload-icon" />
+                            <span style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>
+                                {batchFiles.length > 0 ? `已选择 ${batchFiles.length} 个文件` : '点击选择或拖拽多个文件到此处'}
+                            </span>
+                            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                                支持同时上传多天、多类型的表格
+                            </span>
+                            <input
+                                type="file"
+                                accept=".xlsx,.xls"
+                                multiple
+                                style={{ display: 'none' }}
+                                onChange={handleBatchFilesSelect}
+                            />
+                        </label>
+                    </div>
+
+                    {batchFiles.length > 0 && (
+                        <div style={{ marginBottom: '24px', maxHeight: '200px', overflowY: 'auto', background: 'rgba(255,255,255,0.4)', borderRadius: '8px', padding: '12px', border: '1px solid var(--glass-border)' }}>
+                            {batchFiles.map((item, idx) => (
+                                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: idx === batchFiles.length - 1 ? 'none' : '1px solid var(--glass-border)' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                        <span style={{ fontWeight: 500, fontSize: '14px' }}>{item.file.name}</span>
+                                        {item.info ? (
+                                            <span style={{ fontSize: '12px', padding: '2px 8px', background: 'var(--accent)', color: 'white', borderRadius: '4px' }}>
+                                                {item.info.date} | {item.info.type === 'commodity' ? '商品数据' : '利润数据'}
+                                            </span>
+                                        ) : (
+                                            <span style={{ fontSize: '12px', padding: '2px 8px', background: 'var(--danger)', color: 'white', borderRadius: '4px' }}>
+                                                未识别时间格式
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div style={{ fontSize: '14px' }}>
+                                        {item.status === 'success' && <span style={{ color: 'var(--success)' }}>✅ 成功</span>}
+                                        {item.status === 'fail' && <span style={{ color: 'var(--danger)' }}>❌ {item.error}</span>}
+                                        {item.status === 'pending' && <span style={{ color: 'var(--text-muted)' }}>待上传</span>}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    <button
+                        className="btn"
+                        style={{ width: '100%', justifyContent: 'center', padding: '12px', marginBottom: '16px' }}
+                        onClick={handleBatchUpload}
+                        disabled={batchLoading || batchFiles.length === 0}
+                    >
+                        {batchLoading ? '正在批量处理数据...' : '开始批量上传'}
+                    </button>
+
+                    {batchMessage && (
+                        <div style={{
+                            padding: '12px', borderRadius: '8px', fontSize: '14px', textAlign: 'center',
+                            background: batchMessage.includes('❌') ? 'rgba(239, 68, 68, 0.1)' : 'rgba(16, 185, 129, 0.1)',
+                            color: batchMessage.includes('❌') ? 'var(--danger)' : 'var(--success)',
+                        }}>
+                            {batchMessage}
+                        </div>
+                    )}
                 </div>
             </div>
         </div>
