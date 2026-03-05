@@ -203,9 +203,6 @@ const Upload = () => {
                         box-shadow: 0 4px 20px rgba(0,0,0,0.05);
                         padding: 8px;
                     }
-                    .custom-datepicker-wrapper .react-datepicker__month-container {
-                        width: 320px;
-                    }
                     .custom-datepicker-wrapper .react-datepicker__day-name, 
                     .custom-datepicker-wrapper .react-datepicker__day, 
                     .custom-datepicker-wrapper .react-datepicker__time-name {
@@ -237,7 +234,7 @@ const Upload = () => {
                     }
                     `}
                 </style>
-                <div className="glass-panel" style={{ padding: '24px' }}>
+                <div className="glass-panel" style={{ padding: '24px', position: 'relative', zIndex: 20 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
                         <div>
                             <h3 style={{ fontSize: '18px', fontWeight: '600' }}>全局目标日期</h3>

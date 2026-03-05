@@ -119,7 +119,7 @@ const Dashboard = () => {
 
     return (
         <div>
-            <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'relative', zIndex: 20 }}>
                 <h1 className="page-title" style={{ margin: 0 }}>核心业务指标</h1>
                 <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                     <style>
@@ -133,9 +133,6 @@ const Dashboard = () => {
                             border-radius: 12px;
                             box-shadow: 0 4px 20px rgba(0,0,0,0.05);
                             padding: 8px;
-                        }
-                        .dashboard-datepicker-wrapper .react-datepicker__month-container {
-                            width: 320px;
                         }
                         .dashboard-datepicker-wrapper .react-datepicker__day-name, 
                         .dashboard-datepicker-wrapper .react-datepicker__day, 
