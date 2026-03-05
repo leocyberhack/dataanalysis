@@ -178,8 +178,18 @@ def get_dates(db: Session = Depends(get_db)):
     return {"dates": [d[0].strftime("%Y-%m-%d") for d in dates]}
 
 @app.get("/products")
-def get_products(db: Session = Depends(get_db)):
-    products = db.query(models.Product).all()
+def get_products(startDate: str = None, endDate: str = None, db: Session = Depends(get_db)):
+    query = db.query(models.Product)
+    if startDate and endDate:
+        try:
+            start = datetime.strptime(startDate, "%Y-%m-%d").date()
+            end = datetime.strptime(endDate, "%Y-%m-%d").date()
+            query = query.join(models.DailyData, models.Product.id == models.DailyData.product_id)\
+                         .filter(models.DailyData.date >= start, models.DailyData.date <= end)\
+                         .distinct()
+        except ValueError:
+            pass # fallback to all products if date invalid
+    products = query.all()
     return [{"id": p.id, "name": p.name} for p in products]
 
 def compute_total_rate(db, date_val):

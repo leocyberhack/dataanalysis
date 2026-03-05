@@ -118,11 +118,23 @@ const Compare = () => {
     };
 
     useEffect(() => {
-        Promise.all([getDates(), getProducts()]).then(([d, p]) => {
-            setDates(d);
-            setProducts(p);
-        }).catch(e => console.error(e));
+        getDates().then(d => setDates(d)).catch(e => console.error(e));
     }, []);
+
+    useEffect(() => {
+        if (!startDate || !endDate) return;
+        const startStr = dayjs(startDate).format('YYYY-MM-DD');
+        const endStr = dayjs(endDate).format('YYYY-MM-DD');
+        getProducts(startStr, endStr).then(p => {
+            setProducts(p);
+            // If some previously selected products are no longer available in this date range,
+            // we remove them from selection.
+            setSelectedProducts(prev => {
+                const validIds = p.map(prod => prod.id);
+                return prev.filter(id => validIds.includes(id));
+            });
+        }).catch(e => console.error(e));
+    }, [startDate, endDate]);
 
     const handleSearch = async () => {
         if (!startDate || !endDate) return;
