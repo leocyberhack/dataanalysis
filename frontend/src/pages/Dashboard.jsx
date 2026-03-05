@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react';
 import ReactECharts from 'echarts-for-react';
 import { ArrowUpRight, ArrowDownRight, Minus, AlertCircle } from 'lucide-react';
+import dayjs from 'dayjs';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 import { getDates, getSummary, getDetailedData } from '../api';
 
 const Dashboard = () => {
     const [dates, setDates] = useState([]);
-    const [selectedDate, setSelectedDate] = useState('');
+    const [dateRange, setDateRange] = useState([null, null]);
+    const [confirmedRange, setConfirmedRange] = useState([null, null]);
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(false);
 
@@ -14,25 +18,31 @@ const Dashboard = () => {
     }, []);
 
     useEffect(() => {
-        if (selectedDate) fetchSummary(selectedDate);
-    }, [selectedDate]);
+        if (confirmedRange[0]) {
+            const startStr = dayjs(confirmedRange[0]).format('YYYY-MM-DD');
+            const endStr = confirmedRange[1] ? dayjs(confirmedRange[1]).format('YYYY-MM-DD') : startStr;
+            fetchSummary(startStr, endStr);
+        }
+    }, [confirmedRange]);
 
     const fetchDates = async () => {
         try {
             const dbDates = await getDates();
             setDates(dbDates);
             if (dbDates.length > 0) {
-                setSelectedDate(dbDates[0]);
+                const latest = dayjs(dbDates[0]).toDate();
+                setDateRange([latest, latest]);
+                setConfirmedRange([latest, latest]);
             }
         } catch (e) {
             console.error(e);
         }
     };
 
-    const fetchSummary = async (date) => {
+    const fetchSummary = async (startDate, endDate) => {
         setLoading(true);
         try {
-            const summary = await getSummary(date);
+            const summary = await getSummary(startDate, endDate);
             setData(summary);
         } catch (e) {
             console.error(e);
@@ -63,7 +73,7 @@ const Dashboard = () => {
                 <div className="metric-value">{valueFormatter(value)}</div>
                 <div className="metric-change">
                     {!hasYest ? (
-                        <span className="change-neutral">昨日数据未上传</span>
+                        <span className="change-neutral">上一期数据未上传</span>
                     ) : change === null || change === undefined ? (
                         <span className="change-neutral"><Minus size={14} /> 0.00%</span>
                     ) : change > 0 ? (
@@ -82,18 +92,83 @@ const Dashboard = () => {
     const fmtNumber = (v) => `${(v || 0).toLocaleString()}`;
     const fmtPercent = (v) => `${(v || 0).toFixed(2)}%`;
 
+    const handleDateRangeChange = (update) => {
+        setDateRange(update);
+    };
+
+    const handleConfirmDate = () => {
+        const [start, end] = dateRange;
+        if (start && end) {
+            setConfirmedRange([start, end]);
+        } else if (start) {
+            setConfirmedRange([start, start]);
+        }
+    };
+
+    const renderTitlePrefix = () => {
+        if (!confirmedRange[0]) return "当日";
+        const startStr = dayjs(confirmedRange[0]).format('YYYY-MM-DD');
+        const endStr = confirmedRange[1] ? dayjs(confirmedRange[1]).format('YYYY-MM-DD') : startStr;
+        if (startStr === endStr) return "当日";
+        return "该周期";
+    };
+
+    const prefix = renderTitlePrefix();
+
     return (
         <div>
-            <div className="page-header">
-                <h1 className="page-title">核心业务指标</h1>
-                <select
-                    className="select"
-                    value={selectedDate}
-                    onChange={(e) => setSelectedDate(e.target.value)}
-                    style={{ width: '150px' }}
-                >
-                    {dates.map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
+            <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h1 className="page-title" style={{ margin: 0 }}>核心业务指标</h1>
+                <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                    <style>
+                        {`
+                        .dashboard-datepicker-wrapper .react-datepicker-wrapper {
+                            width: 260px;
+                        }
+                        .dashboard-datepicker-wrapper .react-datepicker__input-container input {
+                            width: 100%;
+                            background: rgba(255, 255, 255, 0.9);
+                            border: 1px solid var(--glass-border);
+                            border-radius: 8px;
+                            padding: 8px 12px;
+                            font-family: inherit;
+                            font-size: 14px;
+                            color: var(--text-main);
+                            outline: none;
+                            transition: all 0.2s;
+                            cursor: pointer;
+                            text-align: center;
+                        }
+                        .dashboard-datepicker-wrapper .react-datepicker__input-container input:hover {
+                            border-color: rgba(224, 122, 95, 0.4);
+                        }
+                        .dashboard-datepicker-wrapper .react-datepicker__input-container input:focus {
+                            border-color: var(--accent);
+                            box-shadow: 0 0 0 2px rgba(224, 122, 95, 0.15);
+                        }
+                        `}
+                    </style>
+                    <div className="dashboard-datepicker-wrapper">
+                        <DatePicker
+                            selectsRange={true}
+                            startDate={dateRange[0]}
+                            endDate={dateRange[1]}
+                            onChange={handleDateRangeChange}
+                            dateFormat="yyyy-MM-dd"
+                            isClearable={false}
+                            placeholderText="请选择日期或范围"
+                            showPopperArrow={false}
+                        />
+                    </div>
+                    <button
+                        className="btn"
+                        style={{ padding: '8px 16px', fontSize: '13px' }}
+                        onClick={handleConfirmDate}
+                        disabled={!dateRange[0]}
+                    >
+                        确认
+                    </button>
+                </div>
             </div>
 
             {loading ? (
@@ -101,9 +176,9 @@ const Dashboard = () => {
             ) : data?.today ? (
                 <>
                     <div className="metrics-grid">
-                        {renderMetric('当日总利润', 'profit', fmtCurrency)}
+                        {renderMetric(`${prefix}总利润`, 'profit', fmtCurrency)}
                         {renderMetric('利润率', 'profit_margin', fmtPercent)}
-                        {renderMetric('当日总支付金额', 'pay_amount', fmtCurrency)}
+                        {renderMetric(`${prefix}总支付金额`, 'pay_amount', fmtCurrency)}
                         {renderMetric('支付订单数', 'pay_orders', fmtNumber)}
                     </div>
                     <div className="metrics-grid" style={{ marginBottom: '24px' }}>

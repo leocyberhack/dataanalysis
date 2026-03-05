@@ -192,16 +192,7 @@ def get_products(startDate: str = None, endDate: str = None, db: Session = Depen
     products = query.all()
     return [{"id": p.id, "name": p.name} for p in products]
 
-def compute_total_rate(db, date_val):
-    # 总的支付金额，核销率（金额），支付订单数，核销件数，核销金额，店播退款金额， 店播退款率，核销率(件)
-    # 计算核销率(金额) = 核销金额 / 支付金额
-    # 计算核销率(件) = 核销件数 / 支付件数
-    # 计算店播退款率 = 店播退款金额 / 店播消费金额
-    # 支付订单数 = sum(pay_orders)
-    # 核销件数 = sum(redeem_items)
-    # 核销金额 = sum(redeem_amount)
-    # 店播退款金额 = sum(live_refund_amount)
-    
+def compute_total_rate(db, start_date, end_date):
     result = db.query(
         func.sum(models.DailyData.pay_amount).label('pay_amount'),
         func.sum(models.DailyData.pay_orders).label('pay_orders'),
@@ -211,7 +202,7 @@ def compute_total_rate(db, date_val):
         func.sum(models.DailyData.live_refund_amount).label('live_refund_amount'),
         func.sum(models.DailyData.live_consume_amount).label('live_consume_amount'),
         func.sum(models.DailyData.profit).label('profit'),
-    ).filter(models.DailyData.date == date_val).first()
+    ).filter(models.DailyData.date >= start_date, models.DailyData.date <= end_date).first()
     
     if not result or result.pay_amount is None:
          return None
@@ -244,18 +235,27 @@ def compute_total_rate(db, date_val):
     }
 
 @app.get("/summary")
-def get_summary(date: str, db: Session = Depends(get_db)):
+def get_summary(date: str = None, startDate: str = None, endDate: str = None, db: Session = Depends(get_db)):
+    if date and not startDate:
+        startDate = date
+    if date and not endDate:
+        endDate = date
+        
     try:
-        target_date = datetime.strptime(date, "%Y-%m-%d").date()
-    except ValueError:
-         raise HTTPException(status_code=400, detail="Invalid date")
+        start_dt = datetime.strptime(startDate, "%Y-%m-%d").date()
+        end_dt = datetime.strptime(endDate, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+         raise HTTPException(status_code=400, detail="Invalid date format")
          
-    calc_today = compute_total_rate(db, target_date)
+    calc_today = compute_total_rate(db, start_dt, end_dt)
     if not calc_today:
         return {"today": None, "yesterday": None, "has_yesterday": False}
         
-    yesterday_date = target_date - timedelta(days=1)
-    calc_yesterday = compute_total_rate(db, yesterday_date)
+    delta_days = (end_dt - start_dt).days + 1
+    prev_end_dt = start_dt - timedelta(days=1)
+    prev_start_dt = start_dt - timedelta(days=delta_days)
+    
+    calc_yesterday = compute_total_rate(db, prev_start_dt, prev_end_dt)
     
     changes = {}
     if calc_yesterday:

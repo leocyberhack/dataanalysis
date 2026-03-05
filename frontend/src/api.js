@@ -37,8 +37,8 @@ export const getProducts = async (startDate, endDate) => {
   return res.data;
 };
 
-export const getSummary = async (date) => {
-  const res = await api.get('/summary', { params: { date } });
+export const getSummary = async (startDate, endDate) => {
+  const res = await api.get('/summary', { params: { startDate, endDate: endDate || startDate } });
   return res.data;
 };
 
