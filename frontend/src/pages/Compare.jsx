@@ -20,6 +20,7 @@ const ALL_METRICS = {
     visitor_count: '访客数',
     bounce_rate: '商品详情页跳出率',
     pay_amount: '支付金额',
+    profit: '商品利润',
     pay_conversion: '支付转化率',
     refund_rate_amount: '成功退款率(金额)',
     redeem_rate_amount: '核销率(金额)',
@@ -467,6 +468,16 @@ const Compare = () => {
                         onChange={handleMetricsChange}
                         placeholder="搜索并选择要关注的数据维度..."
                         noOptionsMessage={() => "未找到该维度"}
+                        formatOptionLabel={(option) => {
+                            if (option.value === 'profit') {
+                                return (
+                                    <span style={{ fontWeight: 'bold', color: 'var(--danger)', fontSize: '15px' }}>
+                                        🔥 {option.label}
+                                    </span>
+                                );
+                            }
+                            return option.label;
+                        }}
                         styles={{
                             control: (base) => ({
                                 ...base,

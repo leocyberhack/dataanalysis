@@ -120,6 +120,58 @@ async def upload_file(date: str = Form(...), file: UploadFile = File(...), db: S
     
     return {"message": "Data uploaded successfully"}
 
+@app.post("/upload_orders")
+def upload_orders(file: UploadFile = File(...), date: str = Form(...)):
+    try:
+        target_date = datetime.strptime(date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format")
+
+    contents = file.file.read()
+    try:
+        df = pd.read_excel(io.BytesIO(contents), header=2)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error reading Excel file: {str(e)}")
+        
+    required_cols = ['旅游线路', '利润']
+    for col in required_cols:
+        if col not in df.columns:
+            raise HTTPException(status_code=400, detail=f"Order Excel must contain '{col}' column.")
+
+    # Group by tourism route (商品名称) and sum the profit
+    profit_by_route = df.groupby('旅游线路')['利润'].sum().to_dict()
+
+    db = SessionLocal()
+    try:
+        import hashlib
+        for route_name, total_profit in profit_by_route.items():
+            if pd.isna(route_name):
+                continue
+
+            product = db.query(models.Product).filter(models.Product.name == str(route_name).strip()).first()
+            if not product:
+                pid = "order_" + hashlib.md5(str(route_name).encode()).hexdigest()[:8]
+                product = models.Product(id=pid, name=str(route_name).strip())
+                db.add(product)
+                db.commit()
+
+            daily_data = db.query(models.DailyData).filter_by(product_id=product.id, date=target_date).first()
+            if daily_data:
+                daily_data.profit = float(total_profit) if pd.notnull(total_profit) else 0.0
+            else:
+                new_data = models.DailyData(
+                    product_id=product.id,
+                    date=target_date,
+                    profit=float(total_profit) if pd.notnull(total_profit) else 0.0
+                )
+                db.add(new_data)
+
+        db.commit()
+    finally:
+        db.close()
+
+    return {"message": "Order data uploaded successfully"}
+
 @app.get("/dates")
 def get_dates(db: Session = Depends(get_db)):
     dates = db.query(models.DailyData.date).distinct().order_by(models.DailyData.date.desc()).all()
@@ -148,6 +200,7 @@ def compute_total_rate(db, date_val):
         func.sum(models.DailyData.redeem_amount).label('redeem_amount'),
         func.sum(models.DailyData.live_refund_amount).label('live_refund_amount'),
         func.sum(models.DailyData.live_consume_amount).label('live_consume_amount'),
+        func.sum(models.DailyData.profit).label('profit'),
     ).filter(models.DailyData.date == date_val).first()
     
     if not result or result.pay_amount is None:
@@ -160,10 +213,12 @@ def compute_total_rate(db, date_val):
     redeem_amount = float(result.redeem_amount or 0)
     live_refund_amount = float(result.live_refund_amount or 0)
     live_consume_amount = float(result.live_consume_amount or 0)
+    profit = float(result.profit or 0)
     
     redeem_rate_amount = (redeem_amount / pay_amount * 100) if pay_amount > 0 else 0
     redeem_rate_item = (redeem_items / pay_items * 100) if pay_items > 0 else 0
     live_refund_rate = (live_refund_amount / live_consume_amount * 100) if live_consume_amount > 0 else 0
+    profit_margin = (profit / redeem_amount * 100) if redeem_amount > 0 else 0
     
     return {
         "pay_amount": pay_amount,
@@ -173,7 +228,9 @@ def compute_total_rate(db, date_val):
         "redeem_amount": redeem_amount,
         "live_refund_amount": live_refund_amount,
         "live_refund_rate": live_refund_rate,
-        "redeem_rate_item": redeem_rate_item
+        "redeem_rate_item": redeem_rate_item,
+        "profit": profit,
+        "profit_margin": profit_margin
     }
 
 @app.get("/summary")

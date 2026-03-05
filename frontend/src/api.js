@@ -13,6 +13,15 @@ export const uploadData = async (date, file) => {
   });
 };
 
+export const uploadOrderData = async (date, file) => {
+  const formData = new FormData();
+  formData.append('date', date);
+  formData.append('file', file);
+  return api.post('/upload_orders', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+};
+
 export const getDates = async () => {
   const res = await api.get('/dates');
   return res.data.dates;

@@ -53,5 +53,6 @@ class DailyData(Base):
     live_refund_rate = Column(Float, default=0)
     
     price_multiplier = Column(Float, default=0)
+    profit = Column(Float, default=0)
 
     product = relationship("Product", backref="daily_data")

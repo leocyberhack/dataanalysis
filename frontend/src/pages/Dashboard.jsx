@@ -101,14 +101,18 @@ const Dashboard = () => {
             ) : data?.today ? (
                 <>
                     <div className="metrics-grid">
+                        {renderMetric('当日总利润', 'profit', fmtCurrency)}
+                        {renderMetric('利润率', 'profit_margin', fmtPercent)}
                         {renderMetric('当日总支付金额', 'pay_amount', fmtCurrency)}
                         {renderMetric('支付订单数', 'pay_orders', fmtNumber)}
+                    </div>
+                    <div className="metrics-grid" style={{ marginBottom: '24px' }}>
                         {renderMetric('总核销金额', 'redeem_amount', fmtCurrency)}
                         {renderMetric('核销率 (金额)', 'redeem_rate_amount', fmtPercent)}
-                    </div>
-                    <div className="metrics-grid" style={{ marginBottom: '40px' }}>
                         {renderMetric('核销件数', 'redeem_items', fmtNumber)}
                         {renderMetric('核销率 (件数)', 'redeem_rate_item', fmtPercent)}
+                    </div>
+                    <div className="metrics-grid" style={{ marginBottom: '40px' }}>
                         {renderMetric('店播退款金额', 'live_refund_amount', fmtCurrency)}
                         {renderMetric('店播退款率', 'live_refund_rate', fmtPercent)}
                     </div>
