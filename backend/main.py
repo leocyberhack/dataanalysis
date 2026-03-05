@@ -7,8 +7,29 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 import models
 from database import engine, SessionLocal
+from sqlalchemy import text
 
 models.Base.metadata.create_all(bind=engine)
+
+# --- Auto-migration: add columns / tables that may not exist in older DBs ---
+def _run_migrations():
+    with engine.connect() as conn:
+        # 1. Add 'profit' column to daily_data if missing
+        try:
+            conn.execute(text("SELECT profit FROM daily_data LIMIT 1"))
+        except Exception:
+            conn.execute(text("ALTER TABLE daily_data ADD COLUMN profit FLOAT DEFAULT 0"))
+            conn.commit()
+
+        # 2. pending_orders table is handled by create_all above,
+        #    but double-check it exists
+        try:
+            conn.execute(text("SELECT 1 FROM pending_orders LIMIT 1"))
+        except Exception:
+            models.Base.metadata.tables['pending_orders'].create(bind=engine)
+
+_run_migrations()
+
 
 app = FastAPI()
 
