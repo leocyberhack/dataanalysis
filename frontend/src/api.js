@@ -50,3 +50,13 @@ export const deleteData = async (date) => {
   const res = await api.delete('/data', { params: { date } });
   return res.data;
 };
+
+export const deleteCommodityData = async (date) => {
+  const res = await api.delete('/data/commodity', { params: { date } });
+  return res.data;
+};
+
+export const deleteOrderData = async (date) => {
+  const res = await api.delete('/data/order', { params: { date } });
+  return res.data;
+};

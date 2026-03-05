@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { UploadCloud, Trash2 } from 'lucide-react';
-import { uploadData, uploadOrderData, deleteData } from '../api';
+import { uploadData, uploadOrderData, deleteCommodityData, deleteOrderData } from '../api';
 import dayjs from 'dayjs';
 
 const Upload = () => {
@@ -52,25 +52,42 @@ const Upload = () => {
         }
     };
 
-    const handleDelete = async () => {
+    const handleDeleteCom = async () => {
         if (!date) {
             setComMessage('请先选择日期');
             return;
         }
-        if (!window.confirm(`确定要取消绑定并删除 [${date}] 这天的所有商品及订单数据吗？此操作无法撤销。`)) {
+        if (!window.confirm(`确定要清空 [${date}] 这天的商品常规数据吗？此操作无法撤销。`)) {
             return;
         }
         setComLoading(true);
-        setOrderLoading(true);
         setComMessage('');
-        setOrderMessage('');
         try {
-            const res = await deleteData(date);
+            const res = await deleteCommodityData(date);
             setComMessage(`✅ ${res.message}`);
         } catch (err) {
             setComMessage('❌ 删除失败: ' + (err.response?.data?.detail || err.message));
         } finally {
             setComLoading(false);
+        }
+    };
+
+    const handleDeleteOrder = async () => {
+        if (!date) {
+            setOrderMessage('请先选择日期');
+            return;
+        }
+        if (!window.confirm(`确定要清空 [${date}] 这天的订单利润数据吗？此操作无法撤销。`)) {
+            return;
+        }
+        setOrderLoading(true);
+        setOrderMessage('');
+        try {
+            const res = await deleteOrderData(date);
+            setOrderMessage(`✅ ${res.message}`);
+        } catch (err) {
+            setOrderMessage('❌ 删除失败: ' + (err.response?.data?.detail || err.message));
+        } finally {
             setOrderLoading(false);
         }
     };
@@ -83,34 +100,14 @@ const Upload = () => {
 
             <div style={{ maxWidth: '800px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
                 <div className="glass-panel" style={{ padding: '24px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <div style={{ flex: 1 }}>
-                            <h3 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: '600' }}>全局目标日期</h3>
-                            <div className="input-group">
-                                <input
-                                    type="date"
-                                    className="input"
-                                    value={date}
-                                    onChange={(e) => setDate(e.target.value)}
-                                />
-                            </div>
-                        </div>
-                        <div style={{ marginLeft: '24px', paddingTop: '28px' }}>
-                            <button
-                                className="btn"
-                                style={{
-                                    justifyContent: 'center',
-                                    padding: '12px 20px',
-                                    background: 'var(--danger)',
-                                    borderColor: 'var(--danger)'
-                                }}
-                                onClick={handleDelete}
-                                disabled={comLoading || orderLoading || !date}
-                            >
-                                <Trash2 size={18} style={{ marginRight: '6px' }} />
-                                解绑当日所有数据
-                            </button>
-                        </div>
+                    <h3 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: '600' }}>全局目标日期</h3>
+                    <div className="input-group">
+                        <input
+                            type="date"
+                            className="input"
+                            value={date}
+                            onChange={(e) => setDate(e.target.value)}
+                        />
                     </div>
                 </div>
 
@@ -140,14 +137,25 @@ const Upload = () => {
                             </label>
                         </div>
 
-                        <button
-                            className="btn"
-                            style={{ width: '100%', justifyContent: 'center', padding: '12px', marginBottom: '16px' }}
-                            onClick={handleUploadCom}
-                            disabled={comLoading || !date || !comFile}
-                        >
-                            {comLoading ? '正在处理数据...' : '上传商品数据'}
-                        </button>
+                        <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
+                            <button
+                                className="btn"
+                                style={{ flex: 1, justifyContent: 'center', padding: '12px' }}
+                                onClick={handleUploadCom}
+                                disabled={comLoading || !date || !comFile}
+                            >
+                                {comLoading ? '正在处理数据...' : '上传商品数据'}
+                            </button>
+                            <button
+                                className="btn"
+                                style={{ flex: '0 0 auto', justifyContent: 'center', padding: '12px 16px', background: 'transparent', borderColor: 'var(--danger)', color: 'var(--danger)' }}
+                                onClick={handleDeleteCom}
+                                disabled={comLoading || !date}
+                            >
+                                <Trash2 size={18} style={{ marginRight: '6px' }} />
+                                清空
+                            </button>
+                        </div>
 
                         {comMessage && (
                             <div style={{
@@ -185,14 +193,25 @@ const Upload = () => {
                             </label>
                         </div>
 
-                        <button
-                            className="btn"
-                            style={{ width: '100%', justifyContent: 'center', padding: '12px', marginBottom: '16px' }}
-                            onClick={handleUploadOrder}
-                            disabled={orderLoading || !date || !orderFile}
-                        >
-                            {orderLoading ? '正在处理数据...' : '上传订单利润数据'}
-                        </button>
+                        <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
+                            <button
+                                className="btn"
+                                style={{ flex: 1, justifyContent: 'center', padding: '12px' }}
+                                onClick={handleUploadOrder}
+                                disabled={orderLoading || !date || !orderFile}
+                            >
+                                {orderLoading ? '正在处理数据...' : '上传订单利润数据'}
+                            </button>
+                            <button
+                                className="btn"
+                                style={{ flex: '0 0 auto', justifyContent: 'center', padding: '12px 16px', background: 'transparent', borderColor: 'var(--danger)', color: 'var(--danger)' }}
+                                onClick={handleDeleteOrder}
+                                disabled={orderLoading || !date}
+                            >
+                                <Trash2 size={18} style={{ marginRight: '6px' }} />
+                                清空
+                            </button>
+                        </div>
 
                         {orderMessage && (
                             <div style={{

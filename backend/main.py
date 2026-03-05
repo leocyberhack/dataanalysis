@@ -306,6 +306,59 @@ def delete_data(date: str, db: Session = Depends(get_db)):
     else:
         return {"message": f"{date} 当天没有绑定的数据可删除"}
 
+@app.delete("/data/commodity")
+def delete_commodity_data(date: str, db: Session = Depends(get_db)):
+    try:
+        target_date = datetime.strptime(date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format")
+
+    records = db.query(models.DailyData).filter(models.DailyData.date == target_date).all()
+    count = 0
+    for r in records:
+        if not r.profit or r.profit == 0:
+            db.delete(r)
+        else:
+            for col in r.__table__.columns:
+                if col.name not in ["id", "product_id", "date", "profit"]:
+                    setattr(r, col.name, 0)
+        count += 1
+    db.commit()
+    
+    if count > 0:
+        return {"message": f"成功清空了 {date} 的商品常规数据"}
+    else:
+        return {"message": f"{date} 当天没有相应的商品常规数据"}
+
+@app.delete("/data/order")
+def delete_order_data(date: str, db: Session = Depends(get_db)):
+    try:
+        target_date = datetime.strptime(date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format")
+
+    records = db.query(models.DailyData).filter(models.DailyData.date == target_date).all()
+    count = 0
+    for r in records:
+        is_empty = True
+        for col in r.__table__.columns:
+            if col.name not in ["id", "product_id", "date", "profit"]:
+                val = getattr(r, col.name)
+                if val and val != 0:
+                    is_empty = False
+                    break
+        if is_empty:
+            db.delete(r)
+        else:
+            r.profit = 0
+        count += 1
+    db.commit()
+    
+    if count > 0:
+        return {"message": f"成功清空了 {date} 的订单利润数据"}
+    else:
+        return {"message": f"{date} 当天没有相应的订单利润数据"}
+
 import os
 
 if __name__ == "__main__":
