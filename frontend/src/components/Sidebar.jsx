@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, FileUp, BarChart2 } from 'lucide-react';
+import { LayoutDashboard, FileUp, BarChart2, ClipboardCheck } from 'lucide-react';
 
 const Sidebar = () => {
     return (
@@ -20,6 +20,10 @@ const Sidebar = () => {
                 <NavLink to="/upload" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
                     <FileUp size={20} />
                     <span>数据上传</span>
+                </NavLink>
+                <NavLink to="/review" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                    <ClipboardCheck size={20} />
+                    <span>订单审核</span>
                 </NavLink>
             </nav>
         </aside>

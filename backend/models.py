@@ -56,3 +56,21 @@ class DailyData(Base):
     profit = Column(Float, default=0)
 
     product = relationship("Product", backref="daily_data")
+
+
+class PendingOrder(Base):
+    __tablename__ = "pending_orders"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    date = Column(Date, index=True)
+    # We store every original column from the order Excel row
+    order_number = Column(String, default="")          # 订单序号
+    order_id = Column(String, default="")              # 订单号
+    product_name = Column(String, default="")          # 旅游线路
+    specification = Column(String, default="")         # 规格
+    quantity = Column(Float, default=0)                # 数量
+    unit_price = Column(Float, default=0)              # 单价
+    total_amount = Column(Float, default=0)            # 总额
+    commission = Column(Float, default=0)              # 佣金
+    profit = Column(Float, default=0)                  # 利润（原始值，可修改）
+    status = Column(String, default="pending")         # pending / approved

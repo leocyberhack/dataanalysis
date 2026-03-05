@@ -138,16 +138,39 @@ def upload_orders(file: UploadFile = File(...), date: str = Form(...)):
         if col not in df.columns:
             raise HTTPException(status_code=400, detail=f"Order Excel must contain '{col}' column.")
 
-    # Group by tourism route (商品名称) and sum the profit
-    profit_by_route = df.groupby('旅游线路')['利润'].sum().to_dict()
-
     db = SessionLocal()
     try:
         import hashlib
-        for route_name, total_profit in profit_by_route.items():
+        normal_count = 0
+        pending_count = 0
+
+        for _, row in df.iterrows():
+            route_name = row.get('旅游线路')
             if pd.isna(route_name):
                 continue
 
+            profit_val = float(row['利润']) if pd.notnull(row.get('利润')) else 0.0
+
+            # Orders with profit <= 0 go to pending review
+            if profit_val <= 0:
+                pending = models.PendingOrder(
+                    date=target_date,
+                    order_number=str(row.get('订单序号', '') if pd.notnull(row.get('订单序号')) else ''),
+                    order_id=str(row.get('订单号', '') if pd.notnull(row.get('订单号')) else ''),
+                    product_name=str(route_name).strip(),
+                    specification=str(row.get('规格', '') if pd.notnull(row.get('规格')) else ''),
+                    quantity=float(row.get('数量', 0)) if pd.notnull(row.get('数量')) else 0,
+                    unit_price=float(row.get('单价', 0)) if pd.notnull(row.get('单价')) else 0,
+                    total_amount=float(row.get('总额', 0)) if pd.notnull(row.get('总额')) else 0,
+                    commission=float(row.get('佣金', 0)) if pd.notnull(row.get('佣金')) else 0,
+                    profit=profit_val,
+                    status="pending"
+                )
+                db.add(pending)
+                pending_count += 1
+                continue
+
+            # Normal profit > 0: group into DailyData as before
             product = db.query(models.Product).filter(models.Product.name == str(route_name).strip()).first()
             if not product:
                 pid = "order_" + hashlib.md5(str(route_name).encode()).hexdigest()[:8]
@@ -157,20 +180,24 @@ def upload_orders(file: UploadFile = File(...), date: str = Form(...)):
 
             daily_data = db.query(models.DailyData).filter_by(product_id=product.id, date=target_date).first()
             if daily_data:
-                daily_data.profit = float(total_profit) if pd.notnull(total_profit) else 0.0
+                daily_data.profit = (daily_data.profit or 0) + profit_val
             else:
                 new_data = models.DailyData(
                     product_id=product.id,
                     date=target_date,
-                    profit=float(total_profit) if pd.notnull(total_profit) else 0.0
+                    profit=profit_val
                 )
                 db.add(new_data)
+            normal_count += 1
 
         db.commit()
     finally:
         db.close()
 
-    return {"message": "Order data uploaded successfully"}
+    msg = f"订单数据上传成功：{normal_count}条正常录入"
+    if pending_count > 0:
+        msg += f"，{pending_count}条利润异常订单已进入审核队列"
+    return {"message": msg, "normal_count": normal_count, "pending_count": pending_count}
 
 @app.get("/dates")
 def get_dates(db: Session = Depends(get_db)):
@@ -390,6 +417,97 @@ def delete_order_data(date: str, db: Session = Depends(get_db)):
         return {"message": f"{date} 当天没有相应的订单利润数据"}
 
 import os
+
+# ==================== Pending Order Review Endpoints ====================
+
+@app.get("/pending_orders")
+def get_pending_orders(db: Session = Depends(get_db)):
+    orders = db.query(models.PendingOrder).filter(
+        models.PendingOrder.status == "pending"
+    ).order_by(models.PendingOrder.date.desc(), models.PendingOrder.id.desc()).all()
+
+    return [{
+        "id": o.id,
+        "date": o.date.strftime("%Y-%m-%d"),
+        "order_number": o.order_number,
+        "order_id": o.order_id,
+        "product_name": o.product_name,
+        "specification": o.specification,
+        "quantity": o.quantity,
+        "unit_price": o.unit_price,
+        "total_amount": o.total_amount,
+        "commission": o.commission,
+        "profit": o.profit,
+        "status": o.status
+    } for o in orders]
+
+
+@app.post("/approve_order/{order_id}")
+def approve_order(order_id: int, db: Session = Depends(get_db)):
+    """Approve a pending order and move its profit into DailyData."""
+    order = db.query(models.PendingOrder).filter(models.PendingOrder.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.status != "pending":
+        raise HTTPException(status_code=400, detail="Order already processed")
+
+    import hashlib
+    # Find or create the product
+    product = db.query(models.Product).filter(models.Product.name == order.product_name).first()
+    if not product:
+        pid = "order_" + hashlib.md5(order.product_name.encode()).hexdigest()[:8]
+        product = models.Product(id=pid, name=order.product_name)
+        db.add(product)
+        db.commit()
+
+    # Add profit to DailyData
+    daily_data = db.query(models.DailyData).filter_by(
+        product_id=product.id, date=order.date
+    ).first()
+    if daily_data:
+        daily_data.profit = (daily_data.profit or 0) + order.profit
+    else:
+        daily_data = models.DailyData(
+            product_id=product.id,
+            date=order.date,
+            profit=order.profit
+        )
+        db.add(daily_data)
+
+    order.status = "approved"
+    db.commit()
+    return {"message": f"订单已审核通过，利润 {order.profit} 已录入分析数据"}
+
+
+from pydantic import BaseModel
+
+class UpdateProfitRequest(BaseModel):
+    profit: float
+
+@app.put("/pending_order/{order_id}")
+def update_pending_order(order_id: int, req: UpdateProfitRequest, db: Session = Depends(get_db)):
+    """Update the profit of a pending order before approving."""
+    order = db.query(models.PendingOrder).filter(models.PendingOrder.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    if order.status != "pending":
+        raise HTTPException(status_code=400, detail="Order already processed")
+    
+    order.profit = req.profit
+    db.commit()
+    return {"message": f"利润已更新为 {req.profit}"}
+
+
+@app.delete("/pending_order/{order_id}")
+def delete_pending_order(order_id: int, db: Session = Depends(get_db)):
+    """Permanently discard a pending order."""
+    order = db.query(models.PendingOrder).filter(models.PendingOrder.id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    db.delete(order)
+    db.commit()
+    return {"message": "订单已删除"}
+
 
 if __name__ == "__main__":
     import uvicorn

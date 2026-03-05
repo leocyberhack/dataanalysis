@@ -70,3 +70,24 @@ export const deleteOrderData = async (date) => {
   const res = await api.delete('/data/order', { params: { date } });
   return res.data;
 };
+
+// ===== Order Review APIs =====
+export const getPendingOrders = async () => {
+  const res = await api.get('/pending_orders');
+  return res.data;
+};
+
+export const approveOrder = async (orderId) => {
+  const res = await api.post(`/approve_order/${orderId}`);
+  return res.data;
+};
+
+export const updateOrderProfit = async (orderId, profit) => {
+  const res = await api.put(`/pending_order/${orderId}`, { profit });
+  return res.data;
+};
+
+export const deletePendingOrder = async (orderId) => {
+  const res = await api.delete(`/pending_order/${orderId}`);
+  return res.data;
+};

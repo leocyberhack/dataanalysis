@@ -3,6 +3,7 @@ import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
 import Upload from './pages/Upload';
 import Compare from './pages/Compare';
+import OrderReview from './pages/OrderReview';
 
 function App() {
   return (
@@ -15,6 +16,7 @@ function App() {
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/upload" element={<Upload />} />
             <Route path="/compare" element={<Compare />} />
+            <Route path="/review" element={<OrderReview />} />
           </Routes>
         </main>
       </div>
