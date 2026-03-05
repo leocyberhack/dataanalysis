@@ -39,10 +39,15 @@ const Upload = () => {
             setComMessage('请选择日期和文件');
             return;
         }
+        const dateStr = dayjs(date).format('YYYY-MM-DD');
+        const status = dateStatus[dateStr];
+        if (status?.commodity) {
+            if (!window.confirm(`[${dateStr}] 已有商品数据，重新上传将覆盖旧的商品数据（利润数据会保留）。确认继续？`)) return;
+        }
         setComLoading(true);
         setComMessage('');
         try {
-            await uploadData(dayjs(date).format('YYYY-MM-DD'), comFile);
+            await uploadData(dateStr, comFile);
             setComMessage('✅ 商品数据上传成功！');
             setComFile(null);
             refreshDateStatus();
@@ -58,11 +63,16 @@ const Upload = () => {
             setOrderMessage('请选择日期和文件');
             return;
         }
+        const dateStr = dayjs(date).format('YYYY-MM-DD');
+        const status = dateStatus[dateStr];
+        if (status?.order) {
+            if (!window.confirm(`[${dateStr}] 已有订单利润数据，重新上传将全量覆盖旧的利润数据。确认继续？`)) return;
+        }
         setOrderLoading(true);
         setOrderMessage('');
         try {
-            await uploadOrderData(dayjs(date).format('YYYY-MM-DD'), orderFile);
-            setOrderMessage('✅ 订单数据上传成功！');
+            const res = await uploadOrderData(dateStr, orderFile);
+            setOrderMessage(`✅ ${res.data?.message || '订单数据上传成功！'}`);
             setOrderFile(null);
             refreshDateStatus();
         } catch (err) {

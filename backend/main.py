@@ -105,41 +105,56 @@ async def upload_file(date: str = Form(...), file: UploadFile = File(...), db: S
     df = df.fillna(0)
     for col in df.columns:
         if df[col].dtype == 'object' and col not in ['产品编号', '商品名称']:
-            # Maybe some strings like '-' or 'N/A' exist
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-            
-    # Remove existing data for that day to avoid duplication
+
+    # --- Preserve existing profit values before clearing commodity data ---
+    existing_profits = {}
+    existing_records = db.query(models.DailyData).filter(
+        models.DailyData.date == target_date
+    ).all()
+    for r in existing_records:
+        if r.profit and r.profit != 0:
+            existing_profits[r.product_id] = r.profit
+
+    # Remove existing data for that day
     db.query(models.DailyData).filter(models.DailyData.date == target_date).delete()
 
     records_to_insert = []
     
-    # Process each row
     for _, row in df.iterrows():
         product_id = str(row["产品编号"])
         product_name = str(row["商品名称"])
         
-        # update Product dictionary
         product = db.query(models.Product).filter(models.Product.id == product_id).first()
         if product:
-            product.name = product_name # update to latest name
+            product.name = product_name
         else:
             product = models.Product(id=product_id, name=product_name)
             db.add(product)
             
         data_kwargs = {
             "product_id": product_id,
-            "date": target_date
+            "date": target_date,
+            "profit": existing_profits.get(product_id, 0.0)  # restore old profit
         }
         for excel_col, model_col in COL_MAP.items():
             if excel_col in row:
                 data_kwargs[model_col] = float(row[excel_col]) if pd.notnull(row[excel_col]) else 0.0
                 
         records_to_insert.append(models.DailyData(**data_kwargs))
-        
+
+    # Also re-create DailyData rows for products that had profit but are NOT in the new Excel
+    new_product_ids = set(str(row["产品编号"]) for _, row in df.iterrows())
+    for pid, old_profit in existing_profits.items():
+        if pid not in new_product_ids:
+            records_to_insert.append(models.DailyData(
+                product_id=pid, date=target_date, profit=old_profit
+            ))
+
     db.bulk_save_objects(records_to_insert)
     db.commit()
     
-    return {"message": "Data uploaded successfully"}
+    return {"message": "商品数据上传成功（利润数据已保留）"}
 
 @app.post("/upload_orders")
 def upload_orders(file: UploadFile = File(...), date: str = Form(...)):
@@ -162,6 +177,34 @@ def upload_orders(file: UploadFile = File(...), date: str = Form(...)):
     db = SessionLocal()
     try:
         import hashlib
+
+        # --- Step 1: Clear ALL old order profit for this date (full replacement) ---
+        # Reset profit to 0 for all DailyData on this date
+        records_on_date = db.query(models.DailyData).filter(
+            models.DailyData.date == target_date
+        ).all()
+        for r in records_on_date:
+            r.profit = 0
+            # If this record has no other data besides profit, remove it entirely
+            has_other_data = False
+            for col in r.__table__.columns:
+                if col.name not in ["id", "product_id", "date", "profit"]:
+                    val = getattr(r, col.name)
+                    if val and val != 0:
+                        has_other_data = True
+                        break
+            if not has_other_data:
+                db.delete(r)
+
+        # Clear old pending orders for this date too (replacing with new upload)
+        db.query(models.PendingOrder).filter(
+            models.PendingOrder.date == target_date,
+            models.PendingOrder.status == "pending"
+        ).delete()
+
+        db.flush()
+
+        # --- Step 2: Process new order data ---
         normal_count = 0
         pending_count = 0
 
@@ -191,13 +234,13 @@ def upload_orders(file: UploadFile = File(...), date: str = Form(...)):
                 pending_count += 1
                 continue
 
-            # Normal profit > 0: group into DailyData as before
+            # Normal profit > 0: accumulate per product (multiple orders → same product)
             product = db.query(models.Product).filter(models.Product.name == str(route_name).strip()).first()
             if not product:
                 pid = "order_" + hashlib.md5(str(route_name).encode()).hexdigest()[:8]
                 product = models.Product(id=pid, name=str(route_name).strip())
                 db.add(product)
-                db.commit()
+                db.flush()
 
             daily_data = db.query(models.DailyData).filter_by(product_id=product.id, date=target_date).first()
             if daily_data:
