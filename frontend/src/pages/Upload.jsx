@@ -42,6 +42,25 @@ const Upload = () => {
     // All dates that have data (sorted newest first)
     const datesWithData = Object.keys(dateStatus).sort().reverse();
 
+    // Filter state for batch delete
+    const [filterYear, setFilterYear] = useState('');
+    const [filterMonth, setFilterMonth] = useState('');
+
+    // Extract unique years and months from data
+    const availableYears = [...new Set(datesWithData.map(d => d.substring(0, 4)))].sort().reverse();
+    const availableMonths = [...new Set(
+        datesWithData
+            .filter(d => !filterYear || d.startsWith(filterYear))
+            .map(d => d.substring(5, 7))
+    )].sort();
+
+    // Filtered list
+    const filteredDates = datesWithData.filter(d => {
+        if (filterYear && !d.startsWith(filterYear)) return false;
+        if (filterMonth && d.substring(5, 7) !== filterMonth) return false;
+        return true;
+    });
+
     const handleUploadCom = async () => {
         if (!date || !comFile) {
             setComMessage('请选择日期和文件');
@@ -509,20 +528,56 @@ const Upload = () => {
                         </p>
                     ) : (
                         <>
+                            {/* Year / Month filter */}
+                            <div style={{ display: 'flex', gap: '12px', marginBottom: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                <span style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 500 }}>筛选：</span>
+                                <select
+                                    value={filterYear}
+                                    onChange={e => { setFilterYear(e.target.value); setFilterMonth(''); setSelectedDates([]); }}
+                                    style={{
+                                        padding: '6px 12px', borderRadius: '6px', fontSize: '13px',
+                                        border: '1px solid var(--glass-border)', background: 'rgba(255,255,255,0.8)',
+                                        cursor: 'pointer', outline: 'none'
+                                    }}
+                                >
+                                    <option value="">全部年份</option>
+                                    {availableYears.map(y => <option key={y} value={y}>{y}年</option>)}
+                                </select>
+                                <select
+                                    value={filterMonth}
+                                    onChange={e => { setFilterMonth(e.target.value); setSelectedDates([]); }}
+                                    style={{
+                                        padding: '6px 12px', borderRadius: '6px', fontSize: '13px',
+                                        border: '1px solid var(--glass-border)', background: 'rgba(255,255,255,0.8)',
+                                        cursor: 'pointer', outline: 'none'
+                                    }}
+                                >
+                                    <option value="">全部月份</option>
+                                    {availableMonths.map(m => <option key={m} value={m}>{parseInt(m)}月</option>)}
+                                </select>
+                                <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginLeft: 'auto' }}>
+                                    筛选后共 <b>{filteredDates.length}</b> 个日期
+                                </span>
+                            </div>
+
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                                 <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '14px', color: 'var(--text-muted)' }}>
                                     <input
                                         type="checkbox"
-                                        checked={selectedDates.length === datesWithData.length && datesWithData.length > 0}
+                                        checked={filteredDates.length > 0 && filteredDates.every(d => selectedDates.includes(d))}
                                         onChange={(e) => {
-                                            setSelectedDates(e.target.checked ? [...datesWithData] : []);
+                                            if (e.target.checked) {
+                                                setSelectedDates(prev => [...new Set([...prev, ...filteredDates])]);
+                                            } else {
+                                                setSelectedDates(prev => prev.filter(d => !filteredDates.includes(d)));
+                                            }
                                         }}
                                         style={{ accentColor: 'var(--danger)' }}
                                     />
-                                    全选 / 取消全选
+                                    全选当前筛选结果
                                 </label>
                                 <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-                                    已选 <span style={{ color: 'var(--danger)', fontWeight: 600 }}>{selectedDates.length}</span> / {datesWithData.length} 个日期
+                                    已选 <span style={{ color: 'var(--danger)', fontWeight: 600 }}>{selectedDates.length}</span> 个日期
                                 </span>
                             </div>
 
@@ -532,7 +587,7 @@ const Upload = () => {
                                 padding: '8px 12px', border: '1px solid var(--glass-border)',
                                 marginBottom: '16px'
                             }}>
-                                {datesWithData.map(dateStr => {
+                                {filteredDates.map(dateStr => {
                                     const status = dateStatus[dateStr];
                                     const isChecked = selectedDates.includes(dateStr);
                                     return (
