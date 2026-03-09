@@ -5,8 +5,8 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   build: {
-    // 调高警告阈值到 1000 KB (默认 500 KB)
-    chunkSizeWarningLimit: 1000,
+    // 调高警告阈值到 1500 KB (echarts 自身较大)
+    chunkSizeWarningLimit: 1500,
     rollupOptions: {
       output: {
         // 将大模块拆分为独立的代码块 (Code Split)
