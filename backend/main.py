@@ -318,6 +318,8 @@ def compute_total_rate(db, start_date, end_date):
         func.sum(models.DailyData.pay_items).label('pay_items'),
         func.sum(models.DailyData.redeem_items).label('redeem_items'),
         func.sum(models.DailyData.redeem_amount).label('redeem_amount'),
+        func.sum(models.DailyData.refund_amount).label('refund_amount'),
+        func.sum(models.DailyData.refund_items).label('refund_items'),
         func.sum(models.DailyData.live_refund_amount).label('live_refund_amount'),
         func.sum(models.DailyData.live_consume_amount).label('live_consume_amount'),
         func.sum(models.DailyData.profit).label('profit'),
@@ -331,6 +333,8 @@ def compute_total_rate(db, start_date, end_date):
     pay_items = float(result.pay_items or 0)
     redeem_items = float(result.redeem_items or 0)
     redeem_amount = float(result.redeem_amount or 0)
+    refund_amount = float(result.refund_amount or 0)
+    refund_items = float(result.refund_items or 0)
     live_refund_amount = float(result.live_refund_amount or 0)
     live_consume_amount = float(result.live_consume_amount or 0)
     profit = float(result.profit or 0)
@@ -338,6 +342,8 @@ def compute_total_rate(db, start_date, end_date):
     redeem_rate_amount = (redeem_amount / pay_amount * 100) if pay_amount > 0 else 0
     redeem_rate_item = (redeem_items / pay_items * 100) if pay_items > 0 else 0
     live_refund_rate = (live_refund_amount / live_consume_amount * 100) if live_consume_amount > 0 else 0
+    refund_rate_amount = (refund_amount / pay_amount * 100) if pay_amount > 0 else 0
+    refund_rate_item = (refund_items / pay_items * 100) if pay_items > 0 else 0
     profit_margin = (profit / redeem_amount * 100) if redeem_amount > 0 else 0
     
     return {
@@ -346,6 +352,10 @@ def compute_total_rate(db, start_date, end_date):
         "pay_orders": pay_orders,
         "redeem_items": redeem_items,
         "redeem_amount": redeem_amount,
+        "refund_amount": refund_amount,
+        "refund_rate_amount": refund_rate_amount,
+        "refund_items": refund_items,
+        "refund_rate_item": refund_rate_item,
         "live_refund_amount": live_refund_amount,
         "live_refund_rate": live_refund_rate,
         "redeem_rate_item": redeem_rate_item,

@@ -226,8 +226,8 @@ const Dashboard = () => {
                         {renderMetric('核销率 (件数)', 'redeem_rate_item', fmtPercent)}
                     </div>
                     <div className="metrics-grid" style={{ marginBottom: '40px' }}>
-                        {renderMetric('店播退款金额', 'live_refund_amount', fmtCurrency)}
-                        {renderMetric('店播退款率', 'live_refund_rate', fmtPercent)}
+                        {renderMetric('成功退款率 (金额)', 'refund_rate_amount', fmtPercent)}
+                        {renderMetric('成功退款率 (件数)', 'refund_rate_item', fmtPercent)}
                     </div>
                 </>
             ) : (
