@@ -73,4 +73,5 @@ class PendingOrder(Base):
     total_amount = Column(Float, default=0)            # 总额
     commission = Column(Float, default=0)              # 佣金
     profit = Column(Float, default=0)                  # 利润（原始值，可修改）
+    salesperson = Column(String, default="")            # 销售
     status = Column(String, default="pending")         # pending / approved

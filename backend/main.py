@@ -28,6 +28,13 @@ def _run_migrations():
         except Exception:
             models.Base.metadata.tables['pending_orders'].create(bind=engine)
 
+        # 3. Add 'salesperson' column to pending_orders if missing
+        try:
+            conn.execute(text("SELECT salesperson FROM pending_orders LIMIT 1"))
+        except Exception:
+            conn.execute(text("ALTER TABLE pending_orders ADD COLUMN salesperson TEXT DEFAULT ''"))
+            conn.commit()
+
 _run_migrations()
 
 
@@ -228,6 +235,7 @@ def upload_orders(file: UploadFile = File(...), date: str = Form(...)):
                     total_amount=float(row.get('总额', 0)) if pd.notnull(row.get('总额')) else 0,
                     commission=float(row.get('佣金', 0)) if pd.notnull(row.get('佣金')) else 0,
                     profit=profit_val,
+                    salesperson=str(row.get('销售', '') if pd.notnull(row.get('销售')) else ''),
                     status="pending"
                 )
                 db.add(pending)
@@ -502,6 +510,7 @@ def get_pending_orders(db: Session = Depends(get_db)):
         "total_amount": o.total_amount,
         "commission": o.commission,
         "profit": o.profit,
+        "salesperson": o.salesperson or "",
         "status": o.status
     } for o in orders]
 

@@ -154,9 +154,6 @@ const OrderReview = () => {
                                         <div style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-main)', marginBottom: '4px' }}>
                                             {order.product_name}
                                         </div>
-                                        <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                                            绑定日期：{order.date}
-                                        </div>
                                     </div>
                                     <div style={{
                                         fontSize: '22px',
@@ -168,24 +165,19 @@ const OrderReview = () => {
                                     </div>
                                 </div>
 
-                                {/* Detail grid */}
+                                {/* Key info row */}
                                 <div style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
-                                    gap: '8px 16px',
-                                    padding: '12px 0',
+                                    display: 'flex',
+                                    gap: '24px',
+                                    padding: '10px 0',
                                     borderTop: '1px solid var(--glass-border)',
                                     borderBottom: '1px solid var(--glass-border)',
                                     marginBottom: '12px',
                                     fontSize: '13px'
                                 }}>
-                                    <div><span style={{ color: 'var(--text-muted)' }}>订单序号：</span>{order.order_number || '-'}</div>
+                                    <div><span style={{ color: 'var(--text-muted)' }}>绑定日期：</span>{order.date}</div>
                                     <div><span style={{ color: 'var(--text-muted)' }}>订单号：</span>{order.order_id || '-'}</div>
-                                    <div><span style={{ color: 'var(--text-muted)' }}>规格：</span>{order.specification || '-'}</div>
-                                    <div><span style={{ color: 'var(--text-muted)' }}>数量：</span>{order.quantity}</div>
-                                    <div><span style={{ color: 'var(--text-muted)' }}>单价：</span>¥{order.unit_price.toFixed(2)}</div>
-                                    <div><span style={{ color: 'var(--text-muted)' }}>总额：</span>¥{order.total_amount.toFixed(2)}</div>
-                                    <div><span style={{ color: 'var(--text-muted)' }}>佣金：</span>¥{order.commission.toFixed(2)}</div>
+                                    <div><span style={{ color: 'var(--text-muted)' }}>销售：</span>{order.salesperson || '-'}</div>
                                 </div>
 
                                 {/* Action row */}
