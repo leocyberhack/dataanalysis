@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { UploadCloud, Trash2 } from 'lucide-react';
-import { uploadData, uploadOrderData, deleteCommodityData, deleteOrderData, getDateStatus } from '../api';
+import { uploadData, uploadOrderData, deleteCommodityData, deleteOrderData, deleteData, getDateStatus } from '../api';
 import dayjs from 'dayjs';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import { zhCN } from 'date-fns/locale';
@@ -33,6 +33,14 @@ const Upload = () => {
     const [batchFiles, setBatchFiles] = useState([]);
     const [batchLoading, setBatchLoading] = useState(false);
     const [batchMessage, setBatchMessage] = useState('');
+
+    // Batch delete state
+    const [selectedDates, setSelectedDates] = useState([]);
+    const [batchDelLoading, setBatchDelLoading] = useState(false);
+    const [batchDelMessage, setBatchDelMessage] = useState('');
+
+    // All dates that have data (sorted newest first)
+    const datesWithData = Object.keys(dateStatus).sort().reverse();
 
     const handleUploadCom = async () => {
         if (!date || !comFile) {
@@ -482,6 +490,143 @@ const Upload = () => {
                         }}>
                             {batchMessage}
                         </div>
+                    )}
+                </div>
+
+                {/* Batch Delete Section */}
+                <div className="glass-panel" style={{ marginTop: '0px' }}>
+                    <h3 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: '600', color: 'var(--danger)' }}>
+                        <Trash2 size={20} style={{ verticalAlign: 'middle', marginRight: '8px' }} />
+                        4. 批量清除日期数据
+                    </h3>
+                    <p style={{ marginBottom: '16px', color: 'var(--text-muted)', fontSize: '14px' }}>
+                        选择要清除的日期，将会删除该日期的<b>所有数据</b>（商品数据 + 利润数据）。此操作不可撤销。
+                    </p>
+
+                    {datesWithData.length === 0 ? (
+                        <p style={{ color: 'var(--text-muted)', fontSize: '14px', textAlign: 'center', padding: '20px' }}>
+                            暂无已上传的日期数据
+                        </p>
+                    ) : (
+                        <>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '14px', color: 'var(--text-muted)' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedDates.length === datesWithData.length && datesWithData.length > 0}
+                                        onChange={(e) => {
+                                            setSelectedDates(e.target.checked ? [...datesWithData] : []);
+                                        }}
+                                        style={{ accentColor: 'var(--danger)' }}
+                                    />
+                                    全选 / 取消全选
+                                </label>
+                                <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                                    已选 <span style={{ color: 'var(--danger)', fontWeight: 600 }}>{selectedDates.length}</span> / {datesWithData.length} 个日期
+                                </span>
+                            </div>
+
+                            <div style={{
+                                maxHeight: '240px', overflowY: 'auto',
+                                background: 'rgba(255,255,255,0.4)', borderRadius: '8px',
+                                padding: '8px 12px', border: '1px solid var(--glass-border)',
+                                marginBottom: '16px'
+                            }}>
+                                {datesWithData.map(dateStr => {
+                                    const status = dateStatus[dateStr];
+                                    const isChecked = selectedDates.includes(dateStr);
+                                    return (
+                                        <label
+                                            key={dateStr}
+                                            style={{
+                                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                                padding: '8px 4px', cursor: 'pointer',
+                                                borderBottom: '1px solid var(--glass-border)',
+                                                background: isChecked ? 'rgba(239, 68, 68, 0.05)' : 'transparent',
+                                                borderRadius: '4px', transition: 'background 0.15s'
+                                            }}
+                                        >
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                <input
+                                                    type="checkbox"
+                                                    checked={isChecked}
+                                                    onChange={(e) => {
+                                                        setSelectedDates(prev =>
+                                                            e.target.checked
+                                                                ? [...prev, dateStr]
+                                                                : prev.filter(d => d !== dateStr)
+                                                        );
+                                                    }}
+                                                    style={{ accentColor: 'var(--danger)' }}
+                                                />
+                                                <span style={{ fontWeight: 500, fontSize: '14px' }}>{dateStr}</span>
+                                            </div>
+                                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                                {status?.commodity && (
+                                                    <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: 'rgba(96,165,250,0.15)', color: '#60A5FA' }}>
+                                                        商品
+                                                    </span>
+                                                )}
+                                                {status?.order && (
+                                                    <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '4px', background: 'rgba(245,158,11,0.15)', color: '#F59E0B' }}>
+                                                        利润
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+
+                            <button
+                                className="btn"
+                                style={{
+                                    width: '100%', justifyContent: 'center', padding: '12px',
+                                    background: selectedDates.length > 0 ? 'var(--danger)' : 'rgba(239,68,68,0.3)',
+                                    color: 'white', marginBottom: '16px'
+                                }}
+                                disabled={batchDelLoading || selectedDates.length === 0}
+                                onClick={async () => {
+                                    if (!window.confirm(
+                                        `确定要清除以下 ${selectedDates.length} 个日期的全部数据吗？\n\n${selectedDates.join('\n')}\n\n⚠️ 此操作不可撤销！`
+                                    )) return;
+
+                                    setBatchDelLoading(true);
+                                    setBatchDelMessage('');
+                                    let ok = 0, fail = 0;
+                                    for (const d of selectedDates) {
+                                        try {
+                                            await deleteData(d);
+                                            ok++;
+                                        } catch {
+                                            fail++;
+                                        }
+                                    }
+                                    setBatchDelLoading(false);
+                                    setSelectedDates([]);
+                                    refreshDateStatus();
+
+                                    if (fail === 0) {
+                                        setBatchDelMessage(`✅ 已成功清除 ${ok} 个日期的全部数据`);
+                                    } else {
+                                        setBatchDelMessage(`⚠️ 完成：${ok} 个成功，${fail} 个失败`);
+                                    }
+                                }}
+                            >
+                                <Trash2 size={18} style={{ marginRight: '8px' }} />
+                                {batchDelLoading ? '正在批量清除...' : `清除选中的 ${selectedDates.length} 个日期数据`}
+                            </button>
+
+                            {batchDelMessage && (
+                                <div style={{
+                                    padding: '12px', borderRadius: '8px', fontSize: '14px', textAlign: 'center',
+                                    background: batchDelMessage.includes('✅') ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                                    color: batchDelMessage.includes('✅') ? 'var(--success)' : 'var(--danger)',
+                                }}>
+                                    {batchDelMessage}
+                                </div>
+                            )}
+                        </>
                     )}
                 </div>
             </div>
