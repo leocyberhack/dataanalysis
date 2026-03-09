@@ -2,6 +2,7 @@ node_modules/
 __pycache__/
 *.py[cod]
 *$py.class
+.venv/
 venv/
 env/
 .env
@@ -11,8 +12,13 @@ dist-ssr/
 *.local
 
 # Database files
+*.db
 backend/data/*.db
 *.sqlite3
+
+# Local data imports
+*.xlsx
+*.xls
 
 # Zeabur files
 .zeabur/

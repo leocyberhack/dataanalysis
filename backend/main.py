@@ -35,6 +35,11 @@ def _run_migrations():
             conn.execute(text("ALTER TABLE pending_orders ADD COLUMN salesperson TEXT DEFAULT ''"))
             conn.commit()
 
+        # 4. Add indexes used by hot query paths
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_products_name ON products (name)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_data_product_id_date ON daily_data (product_id, date)"))
+        conn.commit()
+
 _run_migrations()
 
 

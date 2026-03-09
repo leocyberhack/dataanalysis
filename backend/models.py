@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Date, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Date, ForeignKey, Index
 from database import Base
 from sqlalchemy.orm import relationship
 
@@ -6,10 +6,13 @@ class Product(Base):
     __tablename__ = "products"
     
     id = Column(String, primary_key=True, index=True)
-    name = Column(String)
+    name = Column(String, index=True)
 
 class DailyData(Base):
     __tablename__ = "daily_data"
+    __table_args__ = (
+        Index("ix_daily_data_product_id_date", "product_id", "date"),
+    )
     
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     product_id = Column(String, ForeignKey("products.id"), index=True)

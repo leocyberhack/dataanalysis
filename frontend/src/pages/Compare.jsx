@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import ReactECharts from 'echarts-for-react';
 import dayjs from 'dayjs';
 import Select from 'react-select';
-import * as XLSX from 'xlsx';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import { zhCN } from 'date-fns/locale';
 import 'react-datepicker/dist/react-datepicker.css';
@@ -56,6 +55,8 @@ const ALL_METRICS = {
     live_consume_rate: '店播消费率',
     live_refund_rate: '店播退款率'
 };
+
+const METRIC_KEYS = Object.keys(ALL_METRICS);
 
 const Compare = () => {
     const [dates, setDates] = useState([]);
@@ -167,7 +168,7 @@ const Compare = () => {
         setRawData([]);
     };
 
-    const handleExportExcel = () => {
+    const handleExportExcel = async () => {
         if (!tableWrapperRef.current) return;
         const table = tableWrapperRef.current.querySelector('table');
         if (!table) return;
@@ -182,6 +183,7 @@ const Compare = () => {
             th.innerText = th.innerText.replace(/[\u2191\u2193\u2195]/g, '').trim();
         });
 
+        const XLSX = await import('xlsx');
         const wb = XLSX.utils.table_to_book(tableClone, { raw: true });
         XLSX.writeFile(wb, `数据导出_${dayjs(startDate).format('YYYY-MM-DD')}_至_${dayjs(endDate).format('YYYY-MM-DD')}.xlsx`);
     };
@@ -210,7 +212,7 @@ const Compare = () => {
     };
 
     // When nothing is selected, treat it as "all metrics"
-    const activeMetrics = selectedMetrics.length > 0 ? selectedMetrics : Object.keys(ALL_METRICS);
+    const activeMetrics = selectedMetrics.length > 0 ? selectedMetrics : METRIC_KEYS;
 
     // 聚合数据：根据所选商品，计算在选定日期范围内的合计/平均/最大/最小
     const aggregatedData = useMemo(() => {
@@ -226,7 +228,7 @@ const Compare = () => {
                     product_name: row.product_name,
                     count: 0
                 };
-                Object.keys(ALL_METRICS).forEach(m => {
+                METRIC_KEYS.forEach(m => {
                     grouped[pid][m + '_sum'] = 0;
                     grouped[pid][m + '_max'] = -Infinity;
                     grouped[pid][m + '_min'] = Infinity;
@@ -235,7 +237,7 @@ const Compare = () => {
             }
             grouped[pid].count += 1;
 
-            Object.keys(ALL_METRICS).forEach(m => {
+            METRIC_KEYS.forEach(m => {
                 const val = row[m] !== null && row[m] !== undefined ? parseFloat(row[m]) : 0;
                 grouped[pid][m + '_sum'] += val;
                 grouped[pid][m + '_max'] = Math.max(grouped[pid][m + '_max'], val);
@@ -251,7 +253,7 @@ const Compare = () => {
                 days_count: item.count
             };
 
-            Object.keys(ALL_METRICS).forEach(m => {
+            METRIC_KEYS.forEach(m => {
                 // 计算平均值
                 result[m + '_avg'] = item[m + '_sum'] / item.count;
                 result[m + '_total'] = item[m + '_sum'];
@@ -294,36 +296,49 @@ const Compare = () => {
         }
     };
 
-    const getLineChartOption = () => {
-        if (!rawData.length || activeMetrics.length !== 1) return {};
+    const lineChartModel = useMemo(() => {
+        if (!rawData.length || activeMetrics.length !== 1) return null;
+
         const activeMetric = activeMetrics[0];
+        const productNameById = new Map(products.map(product => [product.id, product.name]));
+        const xAxisDates = Array.from(new Set(rawData.map(row => row.date))).sort();
+        const displayProducts = Array.from(new Set(rawData.map(row => row.product_id))).slice(0, 5);
+        const valueByProductDate = new Map();
 
-        const xAxisDates = Array.from(new Set(rawData.map(d => d.date))).sort();
-        const series = [];
+        rawData.forEach(row => {
+            const key = `${row.product_id}::${row.date}`;
+            if (!valueByProductDate.has(key)) {
+                valueByProductDate.set(key, parseFloat(row[activeMetric] || 0));
+            }
+        });
+
         const legend = [];
-
-        // For trend line, we render ONLY the first selected metric for up to 5 properties
-        // otherwise mixing different units (e.g. 5000 CNY and 20%) in one axis causes unreadable scaling
-        const displayProducts = [...new Set(rawData.map(d => d.product_id))].slice(0, 5);
-
-        displayProducts.forEach(pid => {
-            const pName = products.find(p => p.id === pid)?.name || pid;
-            const dataPoints = xAxisDates.map(date => {
-                const row = rawData.find(r => r.date === date && r.product_id === pid);
-                return row ? parseFloat(row[activeMetric] || 0) : 0;
-            });
-
-            const shortName = pName.length > 8 ? pName.substring(0, 8) + '...' : pName;
+        const series = displayProducts.map(pid => {
+            const productName = productNameById.get(pid) || pid;
+            const shortName = productName.length > 8 ? productName.substring(0, 8) + '...' : productName;
             legend.push(shortName);
-            series.push({
+
+            return {
                 name: shortName,
                 type: 'line',
                 smooth: true,
                 symbolSize: 8,
-                data: dataPoints,
+                data: xAxisDates.map(date => valueByProductDate.get(`${pid}::${date}`) ?? 0),
                 emphasis: { focus: 'series' }
-            });
+            };
         });
+
+        return {
+            activeMetric,
+            legend,
+            series,
+            xAxisDates
+        };
+    }, [activeMetrics, products, rawData]);
+
+    const getLineChartOption = () => {
+        if (!lineChartModel) return {};
+        const { activeMetric, legend, series, xAxisDates } = lineChartModel;
 
         return {
             title: { text: `趋势: ${ALL_METRICS[activeMetric]}`, textStyle: { fontSize: 14, color: 'var(--text-main)', fontWeight: 'normal' } },
