@@ -518,11 +518,11 @@ const Compare = () => {
                     }
                     `}
                 </style>
-                <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-                    <div className="input-group compare-datepicker-wrapper" style={{ flex: '1 1 300px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <div className="mobile-date-row" style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                    <div className="input-group compare-datepicker-wrapper mobile-full-width" style={{ flex: '1 1 300px' }}>
+                        <div className="mobile-stack" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                             <label className="input-label">目标日期范围</label>
-                            <div style={{ display: 'flex', gap: '12px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                            <div className="mobile-tag-row" style={{ display: 'flex', gap: '12px', fontSize: '12px', color: 'var(--text-muted)' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#60A5FA' }} />商品数据</div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#F59E0B' }} />利润数据</div>
                             </div>
@@ -681,7 +681,7 @@ const Compare = () => {
                     />
                 </div>
 
-                <div style={{ display: 'flex', gap: '16px', marginTop: '24px' }}>
+                <div className="mobile-file-row" style={{ display: 'flex', gap: '16px', marginTop: '24px' }}>
                     <button className="btn" style={{ flex: 1, justifyContent: 'center' }} onClick={handleSearch} disabled={loading}>
                         {loading ? '查询中...' : '生成分析视图'}
                     </button>
@@ -706,7 +706,7 @@ const Compare = () => {
                                 </div>
                             </div>
 
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '24px' }}>
+                            <div className="mobile-chart-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '24px' }}>
                                 <div className="chart-container" style={{ height: '350px', background: 'rgba(255,255,255,0.4)', borderRadius: '12px', padding: '16px', border: '1px solid var(--glass-border)' }}>
                                     <ReactECharts option={getPieChartOption()} style={{ height: '100%' }} opts={{ renderer: 'svg' }} />
                                 </div>
@@ -718,7 +718,7 @@ const Compare = () => {
                     )}
 
                     <div className="glass-panel mb-32" style={{ paddingBottom: '8px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                        <div className="mobile-table-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                             <h3 style={{ margin: 0 }}>多维度聚合数据表 (均值按所选日期范围计算)</h3>
                             <button className="btn" style={{ padding: '6px 14px', fontSize: '13px', background: 'var(--success)', whiteSpace: 'nowrap' }} onClick={handleExportExcel}>
                                 下载 Excel 数据表

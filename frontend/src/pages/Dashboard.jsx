@@ -162,7 +162,7 @@ const Dashboard = () => {
                 `}</style>
 
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
-                    <div style={{ display: 'flex', gap: '16px', alignItems: 'center', fontSize: '13px', color: 'var(--text-muted)' }}>
+                    <div className="mobile-tag-row" style={{ display: 'flex', gap: '16px', alignItems: 'center', fontSize: '13px', color: 'var(--text-muted)' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
                             <div style={{ width: '9px', height: '9px', borderRadius: '50%', backgroundColor: '#60A5FA' }} />商品数据
                         </div>
@@ -170,8 +170,8 @@ const Dashboard = () => {
                             <div style={{ width: '9px', height: '9px', borderRadius: '50%', backgroundColor: '#F59E0B' }} />利润数据
                         </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '12px', alignItems: 'center', justifyContent: 'center' }}>
-                        <div className="dashboard-datepicker-wrapper">
+                    <div className="mobile-date-row" style={{ display: 'flex', gap: '12px', alignItems: 'center', justifyContent: 'center' }}>
+                        <div className="dashboard-datepicker-wrapper mobile-full-width">
                             <DatePicker
                                 selectsRange={true}
                                 startDate={dateRange[0]}

@@ -21,6 +21,12 @@
   padding: 0;
 }
 
+html,
+body,
+#root {
+  min-height: 100vh;
+}
+
 body {
   font-family: var(--font-base);
   background: var(--bg-gradient);
@@ -28,6 +34,7 @@ body {
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   background-attachment: fixed;
+  overflow-x: hidden;
 }
 
 /* Scrollbar */
@@ -379,4 +386,280 @@ body {
 
 .mb-32 {
   margin-bottom: 32px;
+}
+
+@media (max-width: 900px) {
+  body {
+    background-attachment: scroll;
+  }
+
+  .layout {
+    flex-direction: column;
+    min-height: 100dvh;
+  }
+
+  .sidebar {
+    width: 100%;
+    padding: calc(12px + env(safe-area-inset-top, 0px)) 14px 12px;
+    gap: 14px;
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    border-right: none;
+    border-bottom: 1px solid var(--glass-border);
+    box-shadow: 0 14px 30px -24px rgba(74, 63, 53, 0.45);
+  }
+
+  .sidebar-title {
+    font-size: 18px;
+    gap: 10px;
+  }
+
+  .nav-links {
+    flex-direction: row;
+    gap: 10px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  .nav-links::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nav-link {
+    flex: 0 0 auto;
+    padding: 10px 14px;
+    border-radius: 999px;
+    white-space: nowrap;
+    font-size: 14px;
+  }
+
+  .nav-link.active {
+    border-left: none;
+    box-shadow: 0 8px 18px rgba(224, 122, 95, 0.22);
+  }
+
+  .main-content {
+    width: 100%;
+    min-width: 0;
+    height: auto;
+    min-height: calc(100dvh - 96px);
+    padding: 16px 14px 28px;
+    overflow-y: visible;
+  }
+
+  .page-header {
+    margin-bottom: 20px;
+  }
+
+  .page-title {
+    font-size: clamp(24px, 6vw, 28px);
+    line-height: 1.15;
+  }
+
+  .glass-panel {
+    padding: 18px;
+    border-radius: 18px;
+  }
+
+  .upload-area {
+    padding: 36px 16px;
+  }
+
+  .btn {
+    min-height: 44px;
+  }
+
+  .metrics-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .metric-card:hover {
+    transform: none;
+  }
+
+  .metric-value {
+    font-size: 24px;
+    overflow-wrap: anywhere;
+  }
+
+  .chart-container {
+    height: 300px;
+  }
+
+  .grid-2 {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .data-table th,
+  .data-table td {
+    padding: 12px 10px;
+    font-size: 12px;
+  }
+
+  .top-scrollbar-wrapper {
+    display: none;
+  }
+
+  .review-scroll-area {
+    max-height: none !important;
+    padding-right: 0 !important;
+  }
+
+  .mobile-stack {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  .mobile-stack > * {
+    width: 100%;
+  }
+
+  .mobile-tag-row {
+    flex-wrap: wrap !important;
+    justify-content: flex-start !important;
+  }
+
+  .mobile-date-row {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  .mobile-date-row > * {
+    width: 100%;
+  }
+
+  .mobile-date-row .btn {
+    justify-content: center;
+  }
+
+  .mobile-full-width {
+    width: 100% !important;
+    flex: 1 1 100% !important;
+  }
+
+  .mobile-file-row {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  .mobile-file-row > * {
+    width: 100%;
+  }
+
+  .mobile-batch-row {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 8px;
+  }
+
+  .mobile-chart-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .mobile-table-header,
+  .mobile-summary-row {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 12px;
+  }
+
+  .mobile-table-header .btn,
+  .mobile-summary-row .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .mobile-summary-row > * {
+    width: 100%;
+  }
+
+  .mobile-review-card {
+    padding: 18px !important;
+  }
+
+  .mobile-review-card-header {
+    flex-direction: column !important;
+    gap: 8px;
+    align-items: flex-start !important;
+  }
+
+  .mobile-review-meta {
+    flex-direction: column !important;
+    gap: 8px !important;
+  }
+
+  .mobile-review-actions {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  .mobile-review-actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .mobile-edit-row {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  .mobile-edit-row input {
+    width: 100% !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .main-content {
+    padding: 14px 12px 24px;
+  }
+
+  .glass-panel {
+    padding: 16px;
+  }
+
+  .metric-value {
+    font-size: 22px;
+  }
+
+  .dashboard-datepicker-wrapper .react-datepicker-wrapper,
+  .compare-datepicker-wrapper .react-datepicker-wrapper {
+    width: 100% !important;
+  }
+
+  .dashboard-datepicker-wrapper .react-datepicker,
+  .compare-datepicker-wrapper .react-datepicker,
+  .custom-datepicker-wrapper .react-datepicker {
+    padding: 10px;
+    font-size: 1rem;
+  }
+
+  .dashboard-datepicker-wrapper .react-datepicker__current-month,
+  .compare-datepicker-wrapper .react-datepicker__current-month,
+  .custom-datepicker-wrapper .react-datepicker__current-month {
+    font-size: 1.15rem;
+  }
+
+  .dashboard-datepicker-wrapper .react-datepicker__navigation,
+  .compare-datepicker-wrapper .react-datepicker__navigation,
+  .custom-datepicker-wrapper .react-datepicker__navigation {
+    top: 12px;
+  }
+
+  .dashboard-datepicker-wrapper .react-datepicker__day-name,
+  .dashboard-datepicker-wrapper .react-datepicker__day,
+  .dashboard-datepicker-wrapper .react-datepicker__time-name,
+  .compare-datepicker-wrapper .react-datepicker__day-name,
+  .compare-datepicker-wrapper .react-datepicker__day,
+  .compare-datepicker-wrapper .react-datepicker__time-name,
+  .custom-datepicker-wrapper .react-datepicker__day-name,
+  .custom-datepicker-wrapper .react-datepicker__day,
+  .custom-datepicker-wrapper .react-datepicker__time-name {
+    width: 2.35rem !important;
+    line-height: 2.35rem !important;
+    margin: 0.1rem !important;
+  }
 }

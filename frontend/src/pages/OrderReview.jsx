@@ -185,7 +185,7 @@ const OrderReview = () => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                     {/* Filter bar */}
                     <div className="glass-panel" style={{ padding: '14px 20px' }}>
-                        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <div className="mobile-tag-row" style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
                             <Filter size={16} color="var(--text-muted)" />
                             <span style={{ fontSize: '13px', color: 'var(--text-muted)', fontWeight: 500 }}>筛选日期：</span>
                             <select
@@ -230,7 +230,7 @@ const OrderReview = () => {
                         </div>
                     </div>
 
-                    <div className="glass-panel" style={{ padding: '12px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div className="glass-panel mobile-summary-row" style={{ padding: '12px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ fontWeight: 600, fontSize: '15px' }}>
                             待审核订单：<span style={{ color: 'var(--danger)', fontSize: '20px' }}>{filteredOrders.length}</span> 条
                         </span>
@@ -251,7 +251,7 @@ const OrderReview = () => {
                             return (
                                 <div
                                     key={order.id}
-                                    className="glass-panel"
+                                    className="glass-panel mobile-review-card"
                                     style={{
                                         padding: '20px 24px',
                                         borderLeft: `4px solid ${order.profit < 0 ? 'var(--danger)' : '#F59E0B'}`,
@@ -261,7 +261,7 @@ const OrderReview = () => {
                                     }}
                                 >
                                     {/* Top row: date + product */}
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                                    <div className="mobile-review-card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
                                         <div>
                                             <div style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-main)', marginBottom: '4px' }}>
                                                 {order.product_name}
@@ -278,7 +278,7 @@ const OrderReview = () => {
                                     </div>
 
                                     {/* Key info row */}
-                                    <div style={{
+                                    <div className="mobile-review-meta" style={{
                                         display: 'flex',
                                         gap: '24px',
                                         padding: '10px 0',
@@ -293,10 +293,10 @@ const OrderReview = () => {
                                     </div>
 
                                     {/* Action row */}
-                                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                    <div className="mobile-review-actions" style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
                                         {isEditing ? (
                                             <>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: '1 1 auto' }}>
+                                                <div className="mobile-edit-row" style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: '1 1 auto' }}>
                                                     <span style={{ fontSize: '13px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>修正利润：</span>
                                                     <input
                                                         type="number"

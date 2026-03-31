@@ -287,11 +287,11 @@ const Upload = () => {
                     `}
                 </style>
                 <div className="glass-panel" style={{ padding: '24px', position: 'relative', zIndex: 20 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+                    <div className="mobile-stack" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
                         <div>
                             <h3 style={{ fontSize: '18px', fontWeight: '600' }}>全局目标日期</h3>
                         </div>
-                        <div style={{ display: 'flex', gap: '16px', alignItems: 'center', fontSize: '14px', color: 'var(--text-muted)' }}>
+                        <div className="mobile-tag-row" style={{ display: 'flex', gap: '16px', alignItems: 'center', fontSize: '14px', color: 'var(--text-muted)' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#60A5FA' }} /> 商品数据
                             </div>
@@ -326,7 +326,7 @@ const Upload = () => {
                     </div>
                 </div>
 
-                <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+                <div className="mobile-stack" style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
                     {/* Commodity File Upload */}
                     <div className="glass-panel" style={{ flex: '1 1 300px' }}>
                         <h3 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: '600' }}>1. 商品数据上传</h3>
@@ -352,7 +352,7 @@ const Upload = () => {
                             </label>
                         </div>
 
-                        <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
+                        <div className="mobile-file-row" style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
                             <button
                                 className="btn"
                                 style={{ flex: 1, justifyContent: 'center', padding: '12px' }}
@@ -408,7 +408,7 @@ const Upload = () => {
                             </label>
                         </div>
 
-                        <div style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
+                        <div className="mobile-file-row" style={{ display: 'flex', gap: '16px', marginBottom: '16px' }}>
                             <button
                                 className="btn"
                                 style={{ flex: 1, justifyContent: 'center', padding: '12px' }}
