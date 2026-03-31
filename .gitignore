@@ -6,6 +6,22 @@ __pycache__/
 venv/
 env/
 .env
+.env.*
+!.env.example
+!.env.*.example
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.pyre/
+.coverage
+.coverage.*
+htmlcov/
+.ipynb_checkpoints/
+.vscode/
+.idea/
+Thumbs.db
 .DS_Store
 dist/
 dist-ssr/
@@ -13,12 +29,20 @@ dist-ssr/
 
 # Database files
 *.db
-backend/data/*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
 *.sqlite3
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+backend/data/
 
 # Local data imports
 *.xlsx
 *.xls
+excel_info.txt
 
 # Zeabur files
 .zeabur/

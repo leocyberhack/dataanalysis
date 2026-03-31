@@ -79,6 +79,16 @@ const Compare = () => {
     const topScrollWrapperRef = useRef(null);
     const [tableScrollWidth, setTableScrollWidth] = useState('100%');
 
+    const selectedRangeDayCount = useMemo(() => {
+        if (!startDate || !endDate) return 1;
+
+        const start = dayjs(startDate).startOf('day');
+        const end = dayjs(endDate).startOf('day');
+        const diffDays = end.diff(start, 'day');
+
+        return diffDays >= 0 ? diffDays + 1 : 1;
+    }, [startDate, endDate]);
+
     useEffect(() => {
         compareCache = {
             inited: true,
@@ -226,7 +236,8 @@ const Compare = () => {
                 grouped[pid] = {
                     product_id: pid,
                     product_name: row.product_name,
-                    count: 0
+                    count: 0,
+                    dates: new Set()
                 };
                 METRIC_KEYS.forEach(m => {
                     grouped[pid][m + '_sum'] = 0;
@@ -236,6 +247,7 @@ const Compare = () => {
                 });
             }
             grouped[pid].count += 1;
+            grouped[pid].dates.add(row.date);
 
             METRIC_KEYS.forEach(m => {
                 const val = row[m] !== null && row[m] !== undefined ? parseFloat(row[m]) : 0;
@@ -250,12 +262,12 @@ const Compare = () => {
             const result = {
                 product_id: item.product_id,
                 product_name: item.product_name,
-                days_count: item.count
+                days_count: item.dates.size
             };
 
             METRIC_KEYS.forEach(m => {
-                // 计算平均值
-                result[m + '_avg'] = item[m + '_sum'] / item.count;
+                // 平均值按所选完整日期范围计算，缺失日期视为 0。
+                result[m + '_avg'] = item[m + '_sum'] / selectedRangeDayCount;
                 result[m + '_total'] = item[m + '_sum'];
                 result[m + '_max'] = item[m + '_max'] === -Infinity ? 0 : item[m + '_max'];
                 result[m + '_min'] = item[m + '_min'] === Infinity ? 0 : item[m + '_min'];
@@ -268,7 +280,7 @@ const Compare = () => {
 
             return result;
         });
-    }, [rawData]);
+    }, [rawData, selectedRangeDayCount]);
 
     const sortedData = useMemo(() => {
         let tableData = [...aggregatedData];
@@ -355,13 +367,13 @@ const Compare = () => {
         if (!aggregatedData.length || activeMetrics.length !== 1) return {};
         const activeMetric = activeMetrics[0];
 
-        // Get Top 10 by average value for this metric
+        // Get Top 10 by range-average value for this metric
         const top10 = [...aggregatedData]
             .sort((a, b) => b[activeMetric + '_avg'] - a[activeMetric + '_avg'])
             .slice(0, 10);
 
         return {
-            title: { text: `TOP 10 : ${ALL_METRICS[activeMetric]} (平均值)`, textStyle: { fontSize: 14, color: 'var(--text-main)', fontWeight: 'normal' } },
+            title: { text: `TOP 10 : ${ALL_METRICS[activeMetric]} (区间日均)`, textStyle: { fontSize: 14, color: 'var(--text-main)', fontWeight: 'normal' } },
             tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, backgroundColor: 'rgba(255,255,255,0.9)' },
             grid: { left: '3%', right: '4%', bottom: '5%', top: '40px', containLabel: true },
             xAxis: { type: 'value', axisLabel: { color: 'var(--text-muted)' }, splitLine: { lineStyle: { color: 'var(--glass-border)' } } },
@@ -685,7 +697,7 @@ const Compare = () => {
                         <div className="glass-panel mb-32">
                             <h3 style={{ marginBottom: '20px' }}>可视化分析引擎</h3>
                             <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '20px' }}>
-                                *当只选择一个维度时激活。趋势图展示该维度的时间变化(最多5个商品)；柱状图和饼图分析该维度的商品表现(TOP10)。
+                                *当只选择一个维度时激活。均值按所选日期范围计算，缺失日期按 0 计入；趋势图展示该维度的时间变化(最多5个商品)；柱状图和饼图分析该维度的商品表现(TOP10)。
                             </p>
 
                             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: '24px', marginBottom: '24px' }}>
@@ -707,7 +719,7 @@ const Compare = () => {
 
                     <div className="glass-panel mb-32" style={{ paddingBottom: '8px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                            <h3 style={{ margin: 0 }}>多维度聚合数据表 (均值、极值、中位数)</h3>
+                            <h3 style={{ margin: 0 }}>多维度聚合数据表 (均值按所选日期范围计算)</h3>
                             <button className="btn" style={{ padding: '6px 14px', fontSize: '13px', background: 'var(--success)', whiteSpace: 'nowrap' }} onClick={handleExportExcel}>
                                 下载 Excel 数据表
                             </button>
@@ -730,7 +742,7 @@ const Compare = () => {
                                 <thead>
                                     <tr>
                                         <th>商品名称</th>
-                                        <th>天数</th>
+                                        <th>有数据天数/区间天数</th>
                                         {activeMetrics.map(mKey => (
                                             <th key={mKey} colSpan="4" style={{ textAlign: 'center' }}>
                                                 {ALL_METRICS[mKey]}
@@ -756,7 +768,7 @@ const Compare = () => {
                                             <td title={row.product_name} style={{ maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                                 {row.product_name}
                                             </td>
-                                            <td>{row.days_count}</td>
+                                            <td>{row.days_count}/{selectedRangeDayCount}</td>
                                             {activeMetrics.map(mKey => (
                                                 <React.Fragment key={mKey + '_val'}>
                                                     <td style={{ color: 'var(--accent)' }}>

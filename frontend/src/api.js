@@ -1,7 +1,12 @@
 import axios from 'axios';
 
+const isLocalDevHost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+const defaultApiUrl = isLocalDevHost
+  ? `http://${window.location.hostname}:8001`
+  : '';
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
+  baseURL: import.meta.env.VITE_API_URL || defaultApiUrl,
 });
 
 export const uploadData = async (date, file) => {

@@ -443,12 +443,16 @@ def delete_data(date: str, db: Session = Depends(get_db)):
          raise HTTPException(status_code=400, detail="Invalid date format")
          
     deleted = db.query(models.DailyData).filter(models.DailyData.date == target_date).delete()
+    deleted_reviews = db.query(models.PendingOrder).filter(models.PendingOrder.date == target_date).delete()
     db.commit()
     
-    if deleted > 0:
-        return {"message": f"成功取消绑定并删除了 {date} 的所有数据 ({deleted}条记录)"}
+    if deleted > 0 or deleted_reviews > 0:
+        msg = f"成功清除了 {date} 的全部数据"
+        if deleted_reviews > 0:
+            msg += f"，并移除了 {deleted_reviews} 条审核订单记录"
+        return {"message": msg}
     else:
-        return {"message": f"{date} 当天没有绑定的数据可删除"}
+        return {"message": f"{date} 当天没有可删除的数据"}
 
 @app.delete("/data/commodity")
 def delete_commodity_data(date: str, db: Session = Depends(get_db)):
@@ -496,10 +500,17 @@ def delete_order_data(date: str, db: Session = Depends(get_db)):
         else:
             r.profit = 0
         count += 1
+
+    deleted_reviews = db.query(models.PendingOrder).filter(
+        models.PendingOrder.date == target_date
+    ).delete()
     db.commit()
     
-    if count > 0:
-        return {"message": f"成功清空了 {date} 的订单利润数据"}
+    if count > 0 or deleted_reviews > 0:
+        msg = f"成功清空了 {date} 的订单利润数据"
+        if deleted_reviews > 0:
+            msg += f"，并移除了 {deleted_reviews} 条审核订单记录"
+        return {"message": msg}
     else:
         return {"message": f"{date} 当天没有相应的订单利润数据"}
 
@@ -599,5 +610,5 @@ def delete_pending_order(order_id: int, db: Session = Depends(get_db)):
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT", 8000))
+    port = int(os.environ.get("PORT", 8001))
     uvicorn.run(app, host="0.0.0.0", port=port)
