@@ -66,6 +66,8 @@ const Compare = () => {
 
   const [startDate, setStartDate] = useState(null);
   const [endDate, setEndDate] = useState(null);
+  const [pickerStartDate, setPickerStartDate] = useState(null);
+  const [pickerEndDate, setPickerEndDate] = useState(null);
 
   const [selectedProducts, setSelectedProducts] = useState([]);
   const [selectedMetrics, setSelectedMetrics] = useState(DEFAULT_METRICS);
@@ -140,6 +142,8 @@ const Compare = () => {
         const fallbackDate = dbDates.length > 0 ? dayjs(dbDates[0]).toDate() : dayjs().toDate();
         setStartDate(fallbackDate);
         setEndDate(fallbackDate);
+        setPickerStartDate(fallbackDate);
+        setPickerEndDate(fallbackDate);
       } catch (error) {
         console.error(error);
       }
@@ -270,6 +274,9 @@ const Compare = () => {
     if (!start) {
       return;
     }
+
+    setPickerStartDate(start);
+    setPickerEndDate(end);
     setStartDate(start);
     setEndDate(end || start);
   };
@@ -460,6 +467,8 @@ const Compare = () => {
     const latest = dates.length > 0 ? dayjs(dates[0]).toDate() : dayjs().toDate();
     setStartDate(latest);
     setEndDate(latest);
+    setPickerStartDate(latest);
+    setPickerEndDate(latest);
     setSelectedProducts(products.map((product) => product.id));
     setSelectedMetrics(DEFAULT_METRICS);
     setProductSearch('');
@@ -723,8 +732,8 @@ const Compare = () => {
             </div>
             <DatePicker
               selectsRange
-              startDate={startDate}
-              endDate={endDate}
+              startDate={pickerStartDate}
+              endDate={pickerEndDate}
               onChange={handleDateRangeChange}
               dateFormat="yyyy-MM-dd"
               locale="zh-CN"
