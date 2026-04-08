@@ -97,6 +97,25 @@ COL_MAP = {
     "店播退款率": "live_refund_rate",
 }
 
+COMPARE_METRIC_FIELDS = [
+    column.name
+    for column in models.DailyData.__table__.columns
+    if column.name not in {"id", "product_id", "date"}
+]
+
+
+def parse_product_ids(product_ids):
+    if not product_ids:
+        return []
+    return [item.strip() for item in product_ids.split(",") if item.strip()]
+
+
+def apply_product_filter(query, product_ids):
+    if product_ids:
+        query = query.filter(models.DailyData.product_id.in_(product_ids))
+    return query
+
+
 @app.post("/upload")
 async def upload_file(date: str = Form(...), file: UploadFile = File(...), db: Session = Depends(get_db)):
     try:
@@ -313,10 +332,10 @@ def get_products(startDate: str = None, endDate: str = None, db: Session = Depen
                          .distinct()
         except ValueError:
             pass # fallback to all products if date invalid
-    products = query.all()
+    products = query.order_by(models.Product.name.asc()).all()
     return [{"id": p.id, "name": p.name} for p in products]
 
-def compute_total_rate(db, start_date, end_date):
+def compute_total_rate(db, start_date, end_date, product_ids=None):
     result = db.query(
         func.sum(models.DailyData.pay_amount).label('pay_amount'),
         func.sum(models.DailyData.pay_orders).label('pay_orders'),
@@ -328,9 +347,26 @@ def compute_total_rate(db, start_date, end_date):
         func.sum(models.DailyData.live_refund_amount).label('live_refund_amount'),
         func.sum(models.DailyData.live_consume_amount).label('live_consume_amount'),
         func.sum(models.DailyData.profit).label('profit'),
-    ).filter(models.DailyData.date >= start_date, models.DailyData.date <= end_date).first()
+    ).filter(models.DailyData.date >= start_date, models.DailyData.date <= end_date)
     
-    if not result or result.pay_amount is None:
+    result = apply_product_filter(result, product_ids).first()
+
+    if not result:
+        return None
+
+    raw_values = [
+        result.pay_amount,
+        result.pay_orders,
+        result.pay_items,
+        result.redeem_items,
+        result.redeem_amount,
+        result.refund_amount,
+        result.refund_items,
+        result.live_refund_amount,
+        result.live_consume_amount,
+        result.profit,
+    ]
+    if all(value is None for value in raw_values):
          return None
          
     pay_amount = float(result.pay_amount or 0)
@@ -369,7 +405,13 @@ def compute_total_rate(db, start_date, end_date):
     }
 
 @app.get("/summary")
-def get_summary(date: str = None, startDate: str = None, endDate: str = None, db: Session = Depends(get_db)):
+def get_summary(
+    date: str = None,
+    startDate: str = None,
+    endDate: str = None,
+    productIds: str = None,
+    db: Session = Depends(get_db),
+):
     if date and not startDate:
         startDate = date
     if date and not endDate:
@@ -380,8 +422,9 @@ def get_summary(date: str = None, startDate: str = None, endDate: str = None, db
         end_dt = datetime.strptime(endDate, "%Y-%m-%d").date()
     except (ValueError, TypeError):
          raise HTTPException(status_code=400, detail="Invalid date format")
-         
-    calc_today = compute_total_rate(db, start_dt, end_dt)
+
+    parsed_product_ids = parse_product_ids(productIds)
+    calc_today = compute_total_rate(db, start_dt, end_dt, parsed_product_ids)
     if not calc_today:
         return {"today": None, "yesterday": None, "has_yesterday": False}
         
@@ -389,7 +432,7 @@ def get_summary(date: str = None, startDate: str = None, endDate: str = None, db
     prev_end_dt = start_dt - timedelta(days=1)
     prev_start_dt = start_dt - timedelta(days=delta_days)
     
-    calc_yesterday = compute_total_rate(db, prev_start_dt, prev_end_dt)
+    calc_yesterday = compute_total_rate(db, prev_start_dt, prev_end_dt, parsed_product_ids)
     
     changes = {}
     if calc_yesterday:
@@ -419,10 +462,8 @@ def get_data(startDate: str, endDate: str, productIds: str = None, db: Session =
     query = db.query(models.DailyData, models.Product.name.label("product_name"))\
              .join(models.Product, models.DailyData.product_id == models.Product.id)\
              .filter(models.DailyData.date >= start, models.DailyData.date <= end)
-             
-    if productIds:
-        ids_list = [i.strip() for i in productIds.split(",")]
-        query = query.filter(models.DailyData.product_id.in_(ids_list))
+
+    query = apply_product_filter(query, parse_product_ids(productIds))
         
     results = query.all()
     
@@ -434,6 +475,61 @@ def get_data(startDate: str, endDate: str, productIds: str = None, db: Session =
         out.append(row_dict)
         
     return out
+
+
+@app.get("/compare/aggregate")
+def get_compare_aggregate(startDate: str, endDate: str, productIds: str = None, db: Session = Depends(get_db)):
+    try:
+        start = datetime.strptime(startDate, "%Y-%m-%d").date()
+        end = datetime.strptime(endDate, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid dates")
+
+    parsed_product_ids = parse_product_ids(productIds)
+    selected_range_day_count = (end - start).days + 1
+
+    query_columns = [
+        models.DailyData.product_id,
+        models.Product.name.label("product_name"),
+        func.count(func.distinct(models.DailyData.date)).label("days_count"),
+    ]
+    for metric in COMPARE_METRIC_FIELDS:
+        metric_column = getattr(models.DailyData, metric)
+        query_columns.extend([
+            func.sum(metric_column).label(f"{metric}_total"),
+            func.max(metric_column).label(f"{metric}_max"),
+            func.min(metric_column).label(f"{metric}_min"),
+        ])
+
+    query = db.query(*query_columns)\
+        .join(models.Product, models.DailyData.product_id == models.Product.id)\
+        .filter(models.DailyData.date >= start, models.DailyData.date <= end)
+    query = apply_product_filter(query, parsed_product_ids)
+
+    results = query.group_by(models.DailyData.product_id, models.Product.name).all()
+    rows = []
+    overall_totals = {metric: 0.0 for metric in COMPARE_METRIC_FIELDS}
+
+    for result in results:
+        row = {
+            "product_id": result.product_id,
+            "product_name": result.product_name,
+            "days_count": int(result.days_count or 0),
+        }
+        for metric in COMPARE_METRIC_FIELDS:
+            total_value = float(getattr(result, f"{metric}_total") or 0)
+            row[f"{metric}_avg"] = total_value / selected_range_day_count if selected_range_day_count > 0 else 0
+            row[f"{metric}_total"] = total_value
+            row[f"{metric}_max"] = float(getattr(result, f"{metric}_max") or 0)
+            row[f"{metric}_min"] = float(getattr(result, f"{metric}_min") or 0)
+            overall_totals[metric] += total_value
+        rows.append(row)
+
+    return {
+        "rows": rows,
+        "overall_totals": overall_totals,
+        "selected_range_day_count": selected_range_day_count,
+    }
 
 @app.delete("/data")
 def delete_data(date: str, db: Session = Depends(get_db)):

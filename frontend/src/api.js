@@ -47,8 +47,12 @@ export const getProducts = async (startDate, endDate) => {
   return res.data;
 };
 
-export const getSummary = async (startDate, endDate) => {
-  const res = await api.get('/summary', { params: { startDate, endDate: endDate || startDate } });
+export const getSummary = async (startDate, endDate, productIds = null) => {
+  const params = { startDate, endDate: endDate || startDate };
+  if (productIds && productIds.length > 0) {
+    params.productIds = productIds.join(',');
+  }
+  const res = await api.get('/summary', { params });
   return res.data;
 };
 
@@ -58,6 +62,15 @@ export const getDetailedData = async (startDate, endDate, productIds = null) => 
     params.productIds = productIds.join(',');
   }
   const res = await api.get('/data', { params });
+  return res.data;
+};
+
+export const getCompareAggregate = async (startDate, endDate, productIds = null) => {
+  const params = { startDate, endDate };
+  if (productIds && productIds.length > 0) {
+    params.productIds = productIds.join(',');
+  }
+  const res = await api.get('/compare/aggregate', { params });
   return res.data;
 };
 

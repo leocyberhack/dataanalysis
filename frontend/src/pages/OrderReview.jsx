@@ -82,6 +82,7 @@ const OrderReview = () => {
         setEditProfit(String(order.profit));
     };
 
+    // eslint-disable-next-line no-unused-vars
     const handleSaveProfit = async (order) => {
         const newProfit = parseFloat(editProfit);
         if (isNaN(newProfit)) {
