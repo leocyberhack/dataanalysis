@@ -116,6 +116,44 @@ def apply_product_filter(query, product_ids):
     return query
 
 
+NON_ADDITIVE_AVERAGE_FIELDS = {
+    "bounce_rate",
+    "price_multiplier",
+    "silent_pay_conversion",
+    "live_consume_rate",
+}
+
+
+def safe_divide(numerator, denominator, multiplier=1):
+    if not denominator:
+        return 0.0
+    return float(numerator or 0) / float(denominator) * multiplier
+
+
+def compute_display_metric_value(metric, sum_values, avg_values):
+    if metric == "avg_visitor_value":
+        return safe_divide(sum_values.get("pay_amount"), sum_values.get("visitor_count"))
+    if metric == "order_conversion":
+        return safe_divide(sum_values.get("order_users"), sum_values.get("visitor_count"), 100)
+    if metric == "pay_conversion":
+        return safe_divide(sum_values.get("pay_users"), sum_values.get("visitor_count"), 100)
+    if metric == "order_user_pay_rate":
+        return safe_divide(sum_values.get("pay_users"), sum_values.get("order_users"), 100)
+    if metric == "refund_rate_amount":
+        return safe_divide(sum_values.get("refund_amount"), sum_values.get("pay_amount"), 100)
+    if metric == "refund_rate_item":
+        return safe_divide(sum_values.get("refund_items"), sum_values.get("pay_items"), 100)
+    if metric == "redeem_rate_amount":
+        return safe_divide(sum_values.get("redeem_amount"), sum_values.get("pay_amount"), 100)
+    if metric == "redeem_rate_item":
+        return safe_divide(sum_values.get("redeem_items"), sum_values.get("pay_items"), 100)
+    if metric == "live_refund_rate":
+        return safe_divide(sum_values.get("live_refund_amount"), sum_values.get("live_consume_amount"), 100)
+    if metric in NON_ADDITIVE_AVERAGE_FIELDS:
+        return float(avg_values.get(metric) or 0)
+    return float(sum_values.get(metric) or 0)
+
+
 @app.post("/upload")
 async def upload_file(date: str = Form(...), file: UploadFile = File(...), db: Session = Depends(get_db)):
     try:
@@ -499,6 +537,7 @@ def get_compare_aggregate(startDate: str, endDate: str, productIds: str = None, 
             func.sum(metric_column).label(f"{metric}_total"),
             func.max(metric_column).label(f"{metric}_max"),
             func.min(metric_column).label(f"{metric}_min"),
+            func.avg(metric_column).label(f"{metric}_avg_existing"),
         ])
 
     query = db.query(*query_columns)\
@@ -510,19 +549,52 @@ def get_compare_aggregate(startDate: str, endDate: str, productIds: str = None, 
     rows = []
     overall_totals = {metric: 0.0 for metric in COMPARE_METRIC_FIELDS}
 
+    overall_query_columns = []
+    for metric in COMPARE_METRIC_FIELDS:
+        metric_column = getattr(models.DailyData, metric)
+        overall_query_columns.extend([
+            func.sum(metric_column).label(f"{metric}_total"),
+            func.avg(metric_column).label(f"{metric}_avg_existing"),
+        ])
+
+    overall_result = db.query(*overall_query_columns)\
+        .filter(models.DailyData.date >= start, models.DailyData.date <= end)
+    overall_result = apply_product_filter(overall_result, parsed_product_ids).first()
+
+    if overall_result:
+        overall_sum_values = {
+            metric: float(getattr(overall_result, f"{metric}_total") or 0)
+            for metric in COMPARE_METRIC_FIELDS
+        }
+        overall_avg_values = {
+            metric: float(getattr(overall_result, f"{metric}_avg_existing") or 0)
+            for metric in COMPARE_METRIC_FIELDS
+        }
+        overall_totals = {
+            metric: compute_display_metric_value(metric, overall_sum_values, overall_avg_values)
+            for metric in COMPARE_METRIC_FIELDS
+        }
+
     for result in results:
         row = {
             "product_id": result.product_id,
             "product_name": result.product_name,
             "days_count": int(result.days_count or 0),
         }
+        row_sum_values = {
+            metric: float(getattr(result, f"{metric}_total") or 0)
+            for metric in COMPARE_METRIC_FIELDS
+        }
+        row_avg_values = {
+            metric: float(getattr(result, f"{metric}_avg_existing") or 0)
+            for metric in COMPARE_METRIC_FIELDS
+        }
         for metric in COMPARE_METRIC_FIELDS:
-            total_value = float(getattr(result, f"{metric}_total") or 0)
+            total_value = row_sum_values[metric]
             row[f"{metric}_avg"] = total_value / selected_range_day_count if selected_range_day_count > 0 else 0
-            row[f"{metric}_total"] = total_value
+            row[f"{metric}_total"] = compute_display_metric_value(metric, row_sum_values, row_avg_values)
             row[f"{metric}_max"] = float(getattr(result, f"{metric}_max") or 0)
             row[f"{metric}_min"] = float(getattr(result, f"{metric}_min") or 0)
-            overall_totals[metric] += total_value
         rows.append(row)
 
     return {

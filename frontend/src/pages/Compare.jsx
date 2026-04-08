@@ -53,7 +53,7 @@ const ALL_METRICS = {
   live_refund_rate: '店播退款率',
 };
 
-const DEFAULT_METRICS = ['pay_amount'];
+const DEFAULT_METRICS = [];
 const METRIC_KEYS = Object.keys(ALL_METRICS);
 
 const normalizeSearchText = (value) => value.toLowerCase().replace(/\s+/g, '');
@@ -87,7 +87,6 @@ const Compare = () => {
 
   const tableWrapperRef = useRef(null);
   const topScrollWrapperRef = useRef(null);
-  const previousProductIdsRef = useRef([]);
   const [tableScrollWidth, setTableScrollWidth] = useState('100%');
 
   const selectedRangeDayCount = useMemo(() => {
@@ -162,22 +161,9 @@ const Compare = () => {
 
     getProducts(startStr, endStr)
       .then((nextProducts) => {
-        const previousProductIds = previousProductIdsRef.current;
         const nextProductIds = nextProducts.map((product) => product.id);
-        previousProductIdsRef.current = nextProductIds;
         setProducts(nextProducts);
-        setSelectedProducts((previousSelection) => {
-          const previousAllSelected = previousProductIds.length > 0
-            && previousSelection.length === previousProductIds.length
-            && previousSelection.every((id) => previousProductIds.includes(id));
-          const validSelection = previousSelection.filter((id) => nextProductIds.includes(id));
-
-          if (previousSelection.length === 0 || previousAllSelected || validSelection.length === 0) {
-            return nextProductIds;
-          }
-
-          return validSelection;
-        });
+        setSelectedProducts((previousSelection) => previousSelection.filter((id) => nextProductIds.includes(id)));
       })
       .catch(console.error);
   }, [endDate, startDate]);
@@ -469,7 +455,7 @@ const Compare = () => {
     setEndDate(latest);
     setPickerStartDate(latest);
     setPickerEndDate(latest);
-    setSelectedProducts(products.map((product) => product.id));
+    setSelectedProducts([]);
     setSelectedMetrics(DEFAULT_METRICS);
     setProductSearch('');
     setMetricSearch('');
@@ -489,9 +475,9 @@ const Compare = () => {
     selectedMetrics.forEach((metric) => {
       headerRow.push(
         `${ALL_METRICS[metric]} - 平均值`,
-        `${ALL_METRICS[metric]} - 总计`,
         `${ALL_METRICS[metric]} - 最大值`,
         `${ALL_METRICS[metric]} - 最小值`,
+        `${ALL_METRICS[metric]} - 总计`,
       );
     });
     sheetRows.push(headerRow);
@@ -501,25 +487,25 @@ const Compare = () => {
       selectedMetrics.forEach((metric) => {
         line.push(
           row[`${metric}_avg`] || 0,
-          row[`${metric}_total`] || 0,
           row[`${metric}_max`] || 0,
           row[`${metric}_min`] || 0,
+          row[`${metric}_total`] || 0,
         );
       });
       sheetRows.push(line);
     });
 
     sheetRows.push([]);
-    sheetRows.push(['筛选商品总体总计']);
-    sheetRows.push(['维度', '总计']);
+    sheetRows.push(['筛选商品总体汇总']);
+    sheetRows.push(['维度', '总体值']);
     selectedMetrics.forEach((metric) => {
       sheetRows.push([ALL_METRICS[metric], overallTotals[metric] || 0]);
     });
 
     sheetRows.push([]);
     sheetRows.push(['备注']);
-    sheetRows.push(['1. 平均值 = 所选区间内该商品该指标总计 ÷ 区间总天数。']);
-    sheetRows.push(['2. 总计 = 所选区间内该商品该指标的累计值。']);
+    sheetRows.push(['1. 平均值：累计型指标按区间总值 ÷ 区间总天数；比率/值型指标按区间内每日指标值做日均处理。']);
+    sheetRows.push(['2. 总计：对累计型指标展示区间累计值；对比率/值型指标展示按整体口径重算后的区间值。']);
     sheetRows.push(['3. 最大值 / 最小值 = 所选区间内该商品在已有数据日期中的单日最大值 / 最小值。']);
 
     const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
@@ -883,9 +869,9 @@ const Compare = () => {
                       {selectedMetrics.map((metric) => (
                         <Fragment key={metric}>
                           {renderSortHeader('平均值', `${metric}_avg`)}
-                          {renderSortHeader('总计', `${metric}_total`)}
                           {renderSortHeader('最大值', `${metric}_max`)}
                           {renderSortHeader('最小值', `${metric}_min`)}
+                          {renderSortHeader('总计', `${metric}_total`)}
                         </Fragment>
                       ))}
                     </tr>
@@ -900,9 +886,9 @@ const Compare = () => {
                         {selectedMetrics.map((metric) => (
                           <Fragment key={`${row.product_id}_${metric}`}>
                             <td style={{ color: 'var(--accent)' }}>{formatTableNumber(row[`${metric}_avg`])}</td>
-                            <td style={{ fontWeight: 600 }}>{formatTableNumber(row[`${metric}_total`])}</td>
                             <td style={{ color: 'var(--success)' }}>{formatTableNumber(row[`${metric}_max`])}</td>
                             <td style={{ color: 'var(--danger)' }}>{formatTableNumber(row[`${metric}_min`])}</td>
+                            <td style={{ fontWeight: 600 }}>{formatTableNumber(row[`${metric}_total`])}</td>
                           </Fragment>
                         ))}
                       </tr>
@@ -912,12 +898,12 @@ const Compare = () => {
               </div>
 
               <div className="compare-total-table">
-                <div className="compare-total-table-title">筛选商品总体总计</div>
+                <div className="compare-total-table-title">筛选商品总体汇总</div>
                 <table className="data-table compare-summary-table">
                   <thead>
                     <tr>
                       <th>维度</th>
-                      <th>总计</th>
+                      <th>总体值</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -933,8 +919,8 @@ const Compare = () => {
 
               <div className="compare-table-note">
                 <div className="compare-table-note-title">口径说明</div>
-                <div className="compare-table-note-item">平均值：所选区间内该商品该指标的总计 ÷ 区间总天数。</div>
-                <div className="compare-table-note-item">总计：所选区间内该商品该指标的累计值。</div>
+                <div className="compare-table-note-item">平均值：累计型指标按区间总值 ÷ 区间总天数；比率/值型指标按区间内每日指标值做日均处理。</div>
+                <div className="compare-table-note-item">总计：对累计型指标展示区间累计值；对比率/值型指标展示按整体口径重算后的区间值。</div>
                 <div className="compare-table-note-item">最大值 / 最小值：所选区间内该商品在已有数据日期中的单日最大值 / 最小值。</div>
               </div>
             </div>
