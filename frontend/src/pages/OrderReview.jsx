@@ -123,8 +123,7 @@ const OrderReview = () => {
         if (!window.confirm(`确认以修改后的利润 ¥${newProfit.toFixed(2)} 审核通过此订单？`)) return;
         setActionLoading(order.id);
         try {
-            await updateOrderProfit(order.id, newProfit);
-            await approveOrder(order.id);
+            await approveOrder(order.id, newProfit);
             setOrders(prev => prev.filter(o => o.id !== order.id));
             setEditingId(null);
         } catch (e) {

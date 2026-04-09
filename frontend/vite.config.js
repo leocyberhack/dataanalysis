@@ -12,7 +12,13 @@ export default defineConfig({
         // 将大模块拆分为独立的代码块 (Code Split)
         manualChunks: {
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          'echarts-vendor': ['echarts', 'echarts-for-react'],
+          'echarts-vendor': [
+            'echarts-for-react/lib/core',
+            'echarts/charts',
+            'echarts/components',
+            'echarts/core',
+            'echarts/renderers'
+          ],
           'xlsx-vendor': ['xlsx'],
           'ui-vendor': ['lucide-react', 'react-select', 'react-datepicker']
         }

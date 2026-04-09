@@ -1,20 +1,26 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import ReactECharts from 'echarts-for-react';
+import ReactEChartsCore from 'echarts-for-react/lib/core';
 import dayjs from 'dayjs';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import { zhCN } from 'date-fns/locale';
 import 'react-datepicker/dist/react-datepicker.css';
 import {
   getCompareAggregate,
+  getCompareTrend,
   getDateStatus,
-  getDetailedData,
   getDates,
   getProducts,
   getSummary,
 } from '../api';
 import SummaryMetricsGrid from '../components/SummaryMetricsGrid';
+import { echarts } from '../lib/echarts';
 
 registerLocale('zh-CN', zhCN);
+
+const VIRTUALIZATION_THRESHOLD = 120;
+const VIRTUALIZATION_OVERSCAN = 12;
+
+const getDefaultTableRowHeight = () => (window.innerWidth <= 768 ? 40 : 50);
 
 const ALL_METRICS = {
   visitor_count: '访客数',
@@ -87,7 +93,11 @@ const Compare = () => {
 
   const tableWrapperRef = useRef(null);
   const topScrollWrapperRef = useRef(null);
+  const tableHeadRef = useRef(null);
+  const measuredRowRef = useRef(null);
   const [tableScrollWidth, setTableScrollWidth] = useState('100%');
+  const [virtualRowHeight, setVirtualRowHeight] = useState(getDefaultTableRowHeight);
+  const [visibleRange, setVisibleRange] = useState({ start: 0, end: 0 });
 
   const selectedRangeDayCount = useMemo(() => {
     if (!startDate || !endDate) {
@@ -175,7 +185,7 @@ const Compare = () => {
     setAggregatedRows([]);
     setOverallTotals({});
     setComparisonSummary(null);
-  }, [endDate, selectedProducts, startDate]);
+  }, [endDate, selectedMetrics, selectedProducts, startDate]);
 
   useEffect(() => {
     if (!sortMetric) {
@@ -218,6 +228,98 @@ const Compare = () => {
     return tableData;
   }, [aggregatedRows, sortMetric, sortOrder]);
 
+  const shouldVirtualizeTable = sortedData.length > VIRTUALIZATION_THRESHOLD;
+
+  const totalMetricColumnCount = useMemo(
+    () => 2 + selectedMetrics.length * 4,
+    [selectedMetrics],
+  );
+
+  const effectiveVisibleRange = useMemo(() => {
+    if (!shouldVirtualizeTable) {
+      return { start: 0, end: sortedData.length };
+    }
+
+    const nextStart = Math.min(visibleRange.start, sortedData.length);
+    const fallbackEnd = Math.min(sortedData.length, VIRTUALIZATION_THRESHOLD);
+    const nextEnd = visibleRange.end === 0
+      ? fallbackEnd
+      : Math.min(sortedData.length, Math.max(visibleRange.end, nextStart));
+
+    return { start: nextStart, end: nextEnd };
+  }, [shouldVirtualizeTable, sortedData.length, visibleRange.end, visibleRange.start]);
+
+  const visibleRows = useMemo(() => {
+    if (!shouldVirtualizeTable) {
+      return sortedData;
+    }
+    return sortedData.slice(effectiveVisibleRange.start, effectiveVisibleRange.end);
+  }, [effectiveVisibleRange.end, effectiveVisibleRange.start, shouldVirtualizeTable, sortedData]);
+
+  const topSpacerHeight = shouldVirtualizeTable ? effectiveVisibleRange.start * virtualRowHeight : 0;
+  const bottomSpacerHeight = shouldVirtualizeTable
+    ? Math.max(0, (sortedData.length - effectiveVisibleRange.end) * virtualRowHeight)
+    : 0;
+
+  useEffect(() => {
+    if (!shouldVirtualizeTable) {
+      setVisibleRange({ start: 0, end: sortedData.length });
+      return;
+    }
+
+    const updateVisibleRange = () => {
+      if (!tableWrapperRef.current) {
+        return;
+      }
+
+      const wrapperRect = tableWrapperRef.current.getBoundingClientRect();
+      const wrapperTop = wrapperRect.top + window.scrollY;
+      const headHeight = tableHeadRef.current?.getBoundingClientRect().height || 0;
+      const bodyTop = wrapperTop + headHeight;
+      const viewportTop = window.scrollY;
+      const viewportBottom = viewportTop + window.innerHeight;
+      const relativeViewportTop = Math.max(0, viewportTop - bodyTop);
+      const relativeViewportBottom = Math.max(0, viewportBottom - bodyTop);
+      const nextStart = Math.min(
+        sortedData.length,
+        Math.max(0, Math.floor(relativeViewportTop / virtualRowHeight) - VIRTUALIZATION_OVERSCAN),
+      );
+      const nextEnd = Math.min(
+        sortedData.length,
+        Math.max(
+          nextStart,
+          Math.ceil(relativeViewportBottom / virtualRowHeight) + VIRTUALIZATION_OVERSCAN,
+        ),
+      );
+
+      setVisibleRange((previous) => (
+        previous.start === nextStart && previous.end === nextEnd
+          ? previous
+          : { start: nextStart, end: nextEnd }
+      ));
+    };
+
+    updateVisibleRange();
+    window.addEventListener('scroll', updateVisibleRange, { passive: true });
+    window.addEventListener('resize', updateVisibleRange);
+
+    return () => {
+      window.removeEventListener('scroll', updateVisibleRange);
+      window.removeEventListener('resize', updateVisibleRange);
+    };
+  }, [shouldVirtualizeTable, sortedData.length, virtualRowHeight]);
+
+  useEffect(() => {
+    if (!shouldVirtualizeTable || !measuredRowRef.current) {
+      return;
+    }
+
+    const nextMeasuredHeight = measuredRowRef.current.getBoundingClientRect().height;
+    if (nextMeasuredHeight > 0 && Math.abs(nextMeasuredHeight - virtualRowHeight) > 1) {
+      setVirtualRowHeight(nextMeasuredHeight);
+    }
+  }, [shouldVirtualizeTable, virtualRowHeight, visibleRows]);
+
   const lineChartModel = useMemo(() => {
     if (!rawData.length || selectedMetrics.length !== 1) {
       return null;
@@ -232,7 +334,7 @@ const Compare = () => {
     const valueByProductDate = new Map();
 
     rawData.forEach((row) => {
-      valueByProductDate.set(`${row.product_id}::${row.date}`, parseFloat(row[activeMetric] || 0));
+      valueByProductDate.set(`${row.product_id}::${row.date}`, parseFloat(row.value || 0));
     });
 
     const legend = [];
@@ -427,13 +529,17 @@ const Compare = () => {
     setErrorMessage('');
 
     try {
-      const [detailedData, aggregateData, summaryData] = await Promise.all([
-        getDetailedData(startStr, endStr, selectedProducts),
-        getCompareAggregate(startStr, endStr, selectedProducts),
+      const trendPromise = selectedMetrics.length === 1
+        ? getCompareTrend(startStr, endStr, selectedMetrics[0], selectedProducts)
+        : Promise.resolve([]);
+
+      const [aggregateData, summaryData, trendData] = await Promise.all([
+        getCompareAggregate(startStr, endStr, selectedProducts, selectedMetrics),
         getSummary(startStr, endStr, selectedProducts),
+        trendPromise,
       ]);
 
-      setRawData(detailedData);
+      setRawData(trendData);
       setAggregatedRows(aggregateData.rows || []);
       setOverallTotals(aggregateData.overall_totals || {});
       setComparisonSummary(summaryData);
@@ -816,16 +922,16 @@ const Compare = () => {
 
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: '24px', marginBottom: '24px' }}>
             <div className="chart-container" style={{ height: '350px', background: 'rgba(255,255,255,0.4)', borderRadius: '12px', padding: '16px', border: '1px solid var(--glass-border)' }}>
-              <ReactECharts option={getLineChartOption()} style={{ height: '100%' }} opts={{ renderer: 'svg' }} />
+              <ReactEChartsCore echarts={echarts} option={getLineChartOption()} style={{ height: '100%' }} opts={{ renderer: 'svg' }} />
             </div>
           </div>
 
           <div className="mobile-chart-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '24px' }}>
             <div className="chart-container" style={{ height: '350px', background: 'rgba(255,255,255,0.4)', borderRadius: '12px', padding: '16px', border: '1px solid var(--glass-border)' }}>
-              <ReactECharts option={getPieChartOption()} style={{ height: '100%' }} opts={{ renderer: 'svg' }} />
+              <ReactEChartsCore echarts={echarts} option={getPieChartOption()} style={{ height: '100%' }} opts={{ renderer: 'svg' }} />
             </div>
             <div className="chart-container" style={{ height: '350px', background: 'rgba(255,255,255,0.4)', borderRadius: '12px', padding: '16px', border: '1px solid var(--glass-border)' }}>
-              <ReactECharts option={getBarChartOption()} style={{ height: '100%' }} opts={{ renderer: 'svg' }} />
+              <ReactEChartsCore echarts={echarts} option={getBarChartOption()} style={{ height: '100%' }} opts={{ renderer: 'svg' }} />
             </div>
           </div>
         </div>
@@ -853,7 +959,7 @@ const Compare = () => {
 
               <div className="data-table-wrapper" ref={tableWrapperRef} onScroll={handleBottomScroll}>
                 <table className="data-table">
-                  <thead>
+                  <thead ref={tableHeadRef}>
                     <tr>
                       <th>商品名称</th>
                       <th>有数据天数/区间天数</th>
@@ -877,8 +983,17 @@ const Compare = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedData.map((row) => (
-                      <tr key={row.product_id}>
+                    {topSpacerHeight > 0 && (
+                      <tr className="virtual-spacer-row" aria-hidden="true">
+                        <td colSpan={totalMetricColumnCount} style={{ height: `${topSpacerHeight}px`, padding: 0, border: 0 }} />
+                      </tr>
+                    )}
+                    {visibleRows.map((row, rowIndex) => (
+                      <tr
+                        key={row.product_id}
+                        ref={rowIndex === 0 ? measuredRowRef : null}
+                        style={shouldVirtualizeTable ? { height: `${virtualRowHeight}px` } : undefined}
+                      >
                         <td title={row.product_name} style={{ maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {row.product_name}
                         </td>
@@ -893,6 +1008,11 @@ const Compare = () => {
                         ))}
                       </tr>
                     ))}
+                    {bottomSpacerHeight > 0 && (
+                      <tr className="virtual-spacer-row" aria-hidden="true">
+                        <td colSpan={totalMetricColumnCount} style={{ height: `${bottomSpacerHeight}px`, padding: 0, border: 0 }} />
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>

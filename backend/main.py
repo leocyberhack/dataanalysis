@@ -1,10 +1,15 @@
+import hashlib
 import io
-import pandas as pd
+from collections import defaultdict
 from datetime import datetime, timedelta
-from fastapi import FastAPI, UploadFile, File, Depends, Form, HTTPException
+from typing import Optional
+
+import pandas as pd
+from fastapi import Body, FastAPI, UploadFile, File, Depends, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from pydantic import BaseModel
 import models
 from database import engine, SessionLocal
 from sqlalchemy import text
@@ -35,9 +40,19 @@ def _run_migrations():
             conn.execute(text("ALTER TABLE pending_orders ADD COLUMN salesperson TEXT DEFAULT ''"))
             conn.commit()
 
-        # 4. Add indexes used by hot query paths
+        # 4. daily_product_summaries table is handled by create_all above,
+        #    but double-check it exists for older databases
+        try:
+            conn.execute(text("SELECT 1 FROM daily_product_summaries LIMIT 1"))
+        except Exception:
+            models.Base.metadata.tables["daily_product_summaries"].create(bind=engine)
+
+        # 5. Add indexes used by hot query paths
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_products_name ON products (name)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_data_product_id_date ON daily_data (product_id, date)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_pending_orders_status_date_id ON pending_orders (status, date, id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_product_summaries_date_product_id ON daily_product_summaries (date, product_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_product_summaries_product_id_date ON daily_product_summaries (product_id, date)"))
         conn.commit()
 
 _run_migrations()
@@ -103,6 +118,12 @@ COMPARE_METRIC_FIELDS = [
     if column.name not in {"id", "product_id", "date"}
 ]
 
+DAILY_PRODUCT_SUMMARY_FIELDS = [
+    column.name
+    for column in models.DailyProductSummary.__table__.columns
+    if column.name not in {"date", "product_id", "product_name"}
+]
+
 
 def parse_product_ids(product_ids):
     if not product_ids:
@@ -110,9 +131,38 @@ def parse_product_ids(product_ids):
     return [item.strip() for item in product_ids.split(",") if item.strip()]
 
 
-def apply_product_filter(query, product_ids):
+def parse_compare_metrics(metrics):
+    if not metrics:
+        return list(COMPARE_METRIC_FIELDS)
+
+    parsed_metrics = []
+    seen_metrics = set()
+    invalid_metrics = []
+
+    for item in metrics.split(","):
+        metric = item.strip()
+        if not metric or metric in seen_metrics:
+            continue
+        if metric not in COMPARE_METRIC_FIELDS:
+            invalid_metrics.append(metric)
+            continue
+        parsed_metrics.append(metric)
+        seen_metrics.add(metric)
+
+    if invalid_metrics:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid compare metrics: {', '.join(invalid_metrics)}",
+        )
+    if not parsed_metrics:
+        raise HTTPException(status_code=400, detail="At least one compare metric is required")
+
+    return parsed_metrics
+
+
+def apply_product_filter(query, product_ids, model=models.DailyData):
     if product_ids:
-        query = query.filter(models.DailyData.product_id.in_(product_ids))
+        query = query.filter(model.product_id.in_(product_ids))
     return query
 
 
@@ -122,6 +172,45 @@ NON_ADDITIVE_AVERAGE_FIELDS = {
     "silent_pay_conversion",
     "live_consume_rate",
 }
+
+TREND_AVERAGE_FIELDS = NON_ADDITIVE_AVERAGE_FIELDS.union({
+    "avg_visitor_value",
+    "order_conversion",
+    "pay_conversion",
+    "order_user_pay_rate",
+    "refund_rate_amount",
+    "refund_rate_item",
+    "redeem_rate_amount",
+    "redeem_rate_item",
+    "live_refund_rate",
+})
+
+COMPARE_TOTAL_DEPENDENCIES = {
+    "avg_visitor_value": {"pay_amount", "visitor_count"},
+    "order_conversion": {"order_users", "visitor_count"},
+    "pay_conversion": {"pay_users", "visitor_count"},
+    "order_user_pay_rate": {"pay_users", "order_users"},
+    "refund_rate_amount": {"refund_amount", "pay_amount"},
+    "refund_rate_item": {"refund_items", "pay_items"},
+    "redeem_rate_amount": {"redeem_amount", "pay_amount"},
+    "redeem_rate_item": {"redeem_items", "pay_items"},
+    "live_refund_rate": {"live_refund_amount", "live_consume_amount"},
+}
+
+TOTAL_RATE_FIELDS = (
+    "pay_amount",
+    "pay_orders",
+    "pay_items",
+    "redeem_items",
+    "redeem_amount",
+    "refund_amount",
+    "refund_items",
+    "live_refund_amount",
+    "live_consume_amount",
+    "profit",
+)
+
+PRODUCT_LIST_CACHE = {}
 
 
 def safe_divide(numerator, denominator, multiplier=1):
@@ -154,6 +243,157 @@ def compute_display_metric_value(metric, sum_values, avg_values):
     return float(sum_values.get(metric) or 0)
 
 
+def has_non_profit_data(record):
+    for column in record.__table__.columns:
+        if column.name in {"id", "product_id", "date", "profit"}:
+            continue
+        value = getattr(record, column.name)
+        if value and value != 0:
+            return True
+    return False
+
+
+def normalize_string_cell(value):
+    if pd.isna(value):
+        return ""
+    return str(value).strip()
+
+
+def normalize_float_cell(value):
+    if pd.isna(value):
+        return 0.0
+    return float(value)
+
+
+def build_order_product_id(product_name):
+    return "order_" + hashlib.md5(product_name.encode("utf-8")).hexdigest()[:8]
+
+
+def clear_runtime_caches():
+    PRODUCT_LIST_CACHE.clear()
+
+
+def refresh_daily_product_summary(db, target_date):
+    db.flush()
+    db.query(models.DailyProductSummary).filter(
+        models.DailyProductSummary.date == target_date
+    ).delete(synchronize_session=False)
+
+    summary_rows = db.query(
+        models.DailyData,
+        models.Product.name.label("product_name"),
+    ).join(
+        models.Product,
+        models.DailyData.product_id == models.Product.id,
+    ).filter(
+        models.DailyData.date == target_date,
+    ).all()
+
+    if not summary_rows:
+        return
+
+    payload = []
+    for record, product_name in summary_rows:
+        row = {
+            "date": target_date,
+            "product_id": record.product_id,
+            "product_name": product_name,
+        }
+        for field in DAILY_PRODUCT_SUMMARY_FIELDS:
+            row[field] = float(getattr(record, field) or 0)
+        payload.append(row)
+
+    db.bulk_insert_mappings(models.DailyProductSummary, payload)
+
+
+def refresh_daily_summary(db, target_date):
+    db.flush()
+    aggregate_columns = [
+        func.sum(getattr(models.DailyData, field)).label(field)
+        for field in TOTAL_RATE_FIELDS
+    ]
+    result = db.query(*aggregate_columns).filter(
+        models.DailyData.date == target_date
+    ).first()
+
+    if not result or all(getattr(result, field) is None for field in TOTAL_RATE_FIELDS):
+        db.query(models.DailySummary).filter(
+            models.DailySummary.date == target_date
+        ).delete(synchronize_session=False)
+        return
+
+    values = {
+        field: float(getattr(result, field) or 0)
+        for field in TOTAL_RATE_FIELDS
+    }
+    values["commodity_uploaded"] = values["pay_amount"] > 0
+    values["order_uploaded"] = abs(values["profit"]) > 0.01
+
+    summary = db.query(models.DailySummary).filter(
+        models.DailySummary.date == target_date
+    ).first()
+    if summary:
+        for key, value in values.items():
+            setattr(summary, key, value)
+    else:
+        db.add(models.DailySummary(date=target_date, **values))
+
+
+def refresh_materialized_summaries(db, target_date):
+    refresh_daily_product_summary(db, target_date)
+    refresh_daily_summary(db, target_date)
+
+
+def ensure_daily_summaries():
+    db = SessionLocal()
+    try:
+        data_date_count = db.query(
+            func.count(func.distinct(models.DailyData.date))
+        ).scalar() or 0
+        summary_count = db.query(func.count(models.DailySummary.date)).scalar() or 0
+
+        if data_date_count == summary_count:
+            return
+
+        db.query(models.DailySummary).delete(synchronize_session=False)
+        dates = [
+            row[0]
+            for row in db.query(models.DailyData.date).distinct().all()
+            if row[0] is not None
+        ]
+        for target_date in dates:
+            refresh_daily_summary(db, target_date)
+        db.commit()
+    finally:
+        db.close()
+
+
+def ensure_daily_product_summaries():
+    db = SessionLocal()
+    try:
+        data_row_count = db.query(func.count(models.DailyData.id)).scalar() or 0
+        summary_row_count = db.query(func.count()).select_from(models.DailyProductSummary).scalar() or 0
+
+        if data_row_count == summary_row_count:
+            return
+
+        db.query(models.DailyProductSummary).delete(synchronize_session=False)
+        dates = [
+            row[0]
+            for row in db.query(models.DailyData.date).distinct().all()
+            if row[0] is not None
+        ]
+        for target_date in dates:
+            refresh_daily_product_summary(db, target_date)
+        db.commit()
+    finally:
+        db.close()
+
+
+ensure_daily_summaries()
+ensure_daily_product_summaries()
+
+
 @app.post("/upload")
 async def upload_file(date: str = Form(...), file: UploadFile = File(...), db: Session = Depends(get_db)):
     try:
@@ -176,57 +416,104 @@ async def upload_file(date: str = Form(...), file: UploadFile = File(...), db: S
         if df[col].dtype == 'object' and col not in ['产品编号', '商品名称']:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-    # --- Preserve existing profit values before clearing commodity data ---
-    existing_profits = {}
-    existing_records = db.query(models.DailyData).filter(
-        models.DailyData.date == target_date
-    ).all()
-    for r in existing_records:
-        if r.profit and r.profit != 0:
-            existing_profits[r.product_id] = r.profit
+    present_metric_pairs = [
+        (excel_col, model_col)
+        for excel_col, model_col in COL_MAP.items()
+        if excel_col in df.columns
+    ]
+    metric_model_fields = [model_col for _, model_col in present_metric_pairs]
+    selected_columns = ["产品编号", "商品名称", *[excel_col for excel_col, _ in present_metric_pairs]]
 
-    # Remove existing data for that day
-    db.query(models.DailyData).filter(models.DailyData.date == target_date).delete()
+    parsed_rows = []
+    seen_product_ids = []
+    for row in df[selected_columns].itertuples(index=False, name=None):
+        product_id = normalize_string_cell(row[0])
+        product_name = normalize_string_cell(row[1])
+        if not product_id:
+            continue
 
-    records_to_insert = []
-    
-    for _, row in df.iterrows():
-        product_id = str(row["产品编号"])
-        product_name = str(row["商品名称"])
-        
-        product = db.query(models.Product).filter(models.Product.id == product_id).first()
-        if product:
-            product.name = product_name
-        else:
-            product = models.Product(id=product_id, name=product_name)
-            db.add(product)
-            
-        data_kwargs = {
+        data_mapping = {
             "product_id": product_id,
             "date": target_date,
-            "profit": existing_profits.get(product_id, 0.0)  # restore old profit
         }
-        for excel_col, model_col in COL_MAP.items():
-            if excel_col in row:
-                data_kwargs[model_col] = float(row[excel_col]) if pd.notnull(row[excel_col]) else 0.0
-                
-        records_to_insert.append(models.DailyData(**data_kwargs))
+        for value_index, model_col in enumerate(metric_model_fields, start=2):
+            data_mapping[model_col] = normalize_float_cell(row[value_index])
 
-    # Also re-create DailyData rows for products that had profit but are NOT in the new Excel
-    new_product_ids = set(str(row["产品编号"]) for _, row in df.iterrows())
-    for pid, old_profit in existing_profits.items():
-        if pid not in new_product_ids:
-            records_to_insert.append(models.DailyData(
-                product_id=pid, date=target_date, profit=old_profit
-            ))
+        parsed_rows.append((product_id, product_name, data_mapping))
+        seen_product_ids.append(product_id)
 
-    db.bulk_save_objects(records_to_insert)
-    db.commit()
-    
+    unique_product_ids = list(dict.fromkeys(seen_product_ids))
+
+    try:
+        existing_records = db.query(
+            models.DailyData.product_id,
+            models.DailyData.profit,
+        ).filter(
+            models.DailyData.date == target_date
+        ).all()
+        existing_profits = {
+            product_id: float(profit or 0)
+            for record in existing_records
+            for product_id, profit in [record]
+            if profit and profit != 0
+        }
+
+        existing_products = {}
+        if unique_product_ids:
+            existing_products = {
+                product.id: product
+                for product in db.query(models.Product).filter(models.Product.id.in_(unique_product_ids)).all()
+            }
+        known_product_ids = set(existing_products)
+
+        db.query(models.DailyData).filter(
+            models.DailyData.date == target_date
+        ).delete(synchronize_session=False)
+
+        new_product_mappings = []
+        daily_data_mappings = []
+        for product_id, product_name, data_mapping in parsed_rows:
+            product = existing_products.get(product_id)
+            if product is not None:
+                if product.name != product_name:
+                    product.name = product_name
+            elif product_id not in known_product_ids:
+                known_product_ids.add(product_id)
+                new_product_mappings.append({"id": product_id, "name": product_name})
+
+            data_mapping["profit"] = existing_profits.get(product_id, 0.0)
+            daily_data_mappings.append(data_mapping)
+
+        new_product_id_set = set(unique_product_ids)
+        for product_id, old_profit in existing_profits.items():
+            if product_id not in new_product_id_set:
+                daily_data_mappings.append(
+                    {"product_id": product_id, "date": target_date, "profit": old_profit}
+                )
+
+        if new_product_mappings:
+            db.bulk_insert_mappings(models.Product, new_product_mappings)
+        if daily_data_mappings:
+            db.bulk_insert_mappings(models.DailyData, daily_data_mappings)
+
+        refresh_materialized_summaries(db, target_date)
+        db.commit()
+        clear_runtime_caches()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to store excel data: {exc}") from exc
+
     return {"message": "商品数据上传成功（利润数据已保留）"}
 
 @app.post("/upload_orders")
-def upload_orders(file: UploadFile = File(...), date: str = Form(...)):
+def upload_orders(
+    file: UploadFile = File(...),
+    date: str = Form(...),
+    db: Session = Depends(get_db),
+):
     try:
         target_date = datetime.strptime(date, "%Y-%m-%d").date()
     except ValueError:
@@ -243,90 +530,125 @@ def upload_orders(file: UploadFile = File(...), date: str = Form(...)):
         if col not in df.columns:
             raise HTTPException(status_code=400, detail=f"Order Excel must contain '{col}' column.")
 
-    db = SessionLocal()
-    try:
-        import hashlib
+    normal_count = 0
+    pending_count = 0
+    pending_order_mappings = []
+    profit_by_route_name = defaultdict(float)
 
-        # --- Step 1: Clear ALL old order profit for this date (full replacement) ---
-        # Reset profit to 0 for all DailyData on this date
+    column_index = {column_name: idx for idx, column_name in enumerate(df.columns)}
+    route_idx = column_index['旅游线路']
+    profit_idx = column_index['利润']
+    order_number_idx = column_index.get('订单序号')
+    order_id_idx = column_index.get('订单号')
+    specification_idx = column_index.get('规格')
+    quantity_idx = column_index.get('数量')
+    unit_price_idx = column_index.get('单价')
+    total_amount_idx = column_index.get('总额')
+    commission_idx = column_index.get('佣金')
+    salesperson_idx = column_index.get('销售')
+
+    for row in df.itertuples(index=False, name=None):
+        route_name = row[route_idx]
+        if pd.isna(route_name):
+            continue
+
+        route_name = normalize_string_cell(route_name)
+        profit_val = normalize_float_cell(row[profit_idx])
+
+        if profit_val <= 0:
+            pending_order_mappings.append({
+                "date": target_date,
+                "order_number": normalize_string_cell(row[order_number_idx]) if order_number_idx is not None else "",
+                "order_id": normalize_string_cell(row[order_id_idx]) if order_id_idx is not None else "",
+                "product_name": route_name,
+                "specification": normalize_string_cell(row[specification_idx]) if specification_idx is not None else "",
+                "quantity": normalize_float_cell(row[quantity_idx]) if quantity_idx is not None else 0.0,
+                "unit_price": normalize_float_cell(row[unit_price_idx]) if unit_price_idx is not None else 0.0,
+                "total_amount": normalize_float_cell(row[total_amount_idx]) if total_amount_idx is not None else 0.0,
+                "commission": normalize_float_cell(row[commission_idx]) if commission_idx is not None else 0.0,
+                "profit": profit_val,
+                "salesperson": normalize_string_cell(row[salesperson_idx]) if salesperson_idx is not None else "",
+                "status": "pending",
+            })
+            pending_count += 1
+            continue
+
+        profit_by_route_name[route_name] += profit_val
+        normal_count += 1
+
+    try:
         records_on_date = db.query(models.DailyData).filter(
             models.DailyData.date == target_date
         ).all()
         for r in records_on_date:
-            r.profit = 0
-            # If this record has no other data besides profit, remove it entirely
-            has_other_data = False
-            for col in r.__table__.columns:
-                if col.name not in ["id", "product_id", "date", "profit"]:
-                    val = getattr(r, col.name)
-                    if val and val != 0:
-                        has_other_data = True
-                        break
-            if not has_other_data:
+            if has_non_profit_data(r):
+                r.profit = 0
+            else:
                 db.delete(r)
 
-        # Clear old pending orders for this date too (replacing with new upload)
         db.query(models.PendingOrder).filter(
             models.PendingOrder.date == target_date,
             models.PendingOrder.status == "pending"
-        ).delete()
+        ).delete(synchronize_session=False)
 
         db.flush()
 
-        # --- Step 2: Process new order data ---
-        normal_count = 0
-        pending_count = 0
+        if pending_order_mappings:
+            db.bulk_insert_mappings(models.PendingOrder, pending_order_mappings)
 
-        for _, row in df.iterrows():
-            route_name = row.get('旅游线路')
-            if pd.isna(route_name):
-                continue
+        route_names = list(profit_by_route_name.keys())
+        products_by_name = {}
+        if route_names:
+            existing_products = db.query(models.Product.id, models.Product.name).filter(
+                models.Product.name.in_(route_names)
+            ).all()
+            for product_id, product_name in existing_products:
+                products_by_name.setdefault(product_name, product_id)
 
-            profit_val = float(row['利润']) if pd.notnull(row.get('利润')) else 0.0
+            new_product_mappings = []
+            for route_name in route_names:
+                if route_name not in products_by_name:
+                    product_id = build_order_product_id(route_name)
+                    products_by_name[route_name] = product_id
+                    new_product_mappings.append({"id": product_id, "name": route_name})
 
-            # Orders with profit <= 0 go to pending review
-            if profit_val <= 0:
-                pending = models.PendingOrder(
-                    date=target_date,
-                    order_number=str(row.get('订单序号', '') if pd.notnull(row.get('订单序号')) else ''),
-                    order_id=str(row.get('订单号', '') if pd.notnull(row.get('订单号')) else ''),
-                    product_name=str(route_name).strip(),
-                    specification=str(row.get('规格', '') if pd.notnull(row.get('规格')) else ''),
-                    quantity=float(row.get('数量', 0)) if pd.notnull(row.get('数量')) else 0,
-                    unit_price=float(row.get('单价', 0)) if pd.notnull(row.get('单价')) else 0,
-                    total_amount=float(row.get('总额', 0)) if pd.notnull(row.get('总额')) else 0,
-                    commission=float(row.get('佣金', 0)) if pd.notnull(row.get('佣金')) else 0,
-                    profit=profit_val,
-                    salesperson=str(row.get('销售', '') if pd.notnull(row.get('销售')) else ''),
-                    status="pending"
-                )
-                db.add(pending)
-                pending_count += 1
-                continue
+            if new_product_mappings:
+                db.bulk_insert_mappings(models.Product, new_product_mappings)
 
-            # Normal profit > 0: accumulate per product (multiple orders → same product)
-            product = db.query(models.Product).filter(models.Product.name == str(route_name).strip()).first()
-            if not product:
-                pid = "order_" + hashlib.md5(str(route_name).encode()).hexdigest()[:8]
-                product = models.Product(id=pid, name=str(route_name).strip())
-                db.add(product)
-                db.flush()
+            target_product_ids = list(products_by_name.values())
+            existing_daily_data = {
+                row.product_id: row
+                for row in db.query(models.DailyData).filter(
+                    models.DailyData.date == target_date,
+                    models.DailyData.product_id.in_(target_product_ids),
+                ).all()
+            }
 
-            daily_data = db.query(models.DailyData).filter_by(product_id=product.id, date=target_date).first()
-            if daily_data:
-                daily_data.profit = (daily_data.profit or 0) + profit_val
-            else:
-                new_data = models.DailyData(
-                    product_id=product.id,
-                    date=target_date,
-                    profit=profit_val
-                )
-                db.add(new_data)
-            normal_count += 1
+            new_daily_row_mappings = []
+            for route_name, total_profit in profit_by_route_name.items():
+                product_id = products_by_name[route_name]
+                daily_data = existing_daily_data.get(product_id)
+                if daily_data:
+                    daily_data.profit = total_profit
+                else:
+                    new_daily_row_mappings.append({
+                        "product_id": product_id,
+                        "date": target_date,
+                        "profit": total_profit,
+                    })
 
+            if new_daily_row_mappings:
+                db.bulk_insert_mappings(models.DailyData, new_daily_row_mappings)
+
+        refresh_materialized_summaries(db, target_date)
         db.commit()
-    finally:
-        db.close()
+        clear_runtime_caches()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to store order data: {exc}") from exc
 
     msg = f"订单数据上传成功：{normal_count}条正常录入"
     if pending_count > 0:
@@ -335,59 +657,84 @@ def upload_orders(file: UploadFile = File(...), date: str = Form(...)):
 
 @app.get("/dates")
 def get_dates(db: Session = Depends(get_db)):
-    dates = db.query(models.DailyData.date).distinct().order_by(models.DailyData.date.desc()).all()
+    dates = db.query(models.DailySummary.date).order_by(models.DailySummary.date.desc()).all()
     return {"dates": [d[0].strftime("%Y-%m-%d") for d in dates]}
 
 @app.get("/date_status")
 def get_date_status(db: Session = Depends(get_db)):
-    results = db.query(
-        models.DailyData.date,
-        func.sum(models.DailyData.pay_amount).label('pay_amount'),
-        func.sum(models.DailyData.profit).label('profit')
-    ).group_by(models.DailyData.date).all()
-    
-    status = {}
-    for r in results:
-        date_str = r.date.strftime("%Y-%m-%d")
-        pay_amount = float(r.pay_amount or 0)
-        profit = float(r.profit or 0)
-        # Using abs(profit) > 0.01 to handle precision issues
-        status[date_str] = {
-            "commodity": pay_amount > 0,
-            "order": abs(profit) > 0.01
+    results = db.query(models.DailySummary).order_by(models.DailySummary.date.desc()).all()
+    return {
+        row.date.strftime("%Y-%m-%d"): {
+            "commodity": bool(row.commodity_uploaded),
+            "order": bool(row.order_uploaded),
         }
-    return status
+        for row in results
+    }
 
 @app.get("/products")
 def get_products(startDate: str = None, endDate: str = None, db: Session = Depends(get_db)):
-    query = db.query(models.Product)
+    cache_key = (startDate or "", endDate or "")
+    cached_products = PRODUCT_LIST_CACHE.get(cache_key)
+    if cached_products is not None:
+        return cached_products
+
     if startDate and endDate:
         try:
             start = datetime.strptime(startDate, "%Y-%m-%d").date()
             end = datetime.strptime(endDate, "%Y-%m-%d").date()
-            query = query.join(models.DailyData, models.Product.id == models.DailyData.product_id)\
-                         .filter(models.DailyData.date >= start, models.DailyData.date <= end)\
-                         .distinct()
+            products = db.query(
+                models.DailyProductSummary.product_id,
+                models.Product.name,
+            ).join(
+                models.Product,
+                models.DailyProductSummary.product_id == models.Product.id,
+            ).filter(
+                models.DailyProductSummary.date >= start,
+                models.DailyProductSummary.date <= end,
+            ).distinct().order_by(
+                models.Product.name.asc()
+            ).all()
+            payload = [{"id": product_id, "name": product_name} for product_id, product_name in products]
+            PRODUCT_LIST_CACHE[cache_key] = payload
+            return payload
         except ValueError:
             pass # fallback to all products if date invalid
-    products = query.order_by(models.Product.name.asc()).all()
-    return [{"id": p.id, "name": p.name} for p in products]
+    products = db.query(models.Product).order_by(models.Product.name.asc()).all()
+    payload = [{"id": p.id, "name": p.name} for p in products]
+    PRODUCT_LIST_CACHE[cache_key] = payload
+    return payload
 
 def compute_total_rate(db, start_date, end_date, product_ids=None):
-    result = db.query(
-        func.sum(models.DailyData.pay_amount).label('pay_amount'),
-        func.sum(models.DailyData.pay_orders).label('pay_orders'),
-        func.sum(models.DailyData.pay_items).label('pay_items'),
-        func.sum(models.DailyData.redeem_items).label('redeem_items'),
-        func.sum(models.DailyData.redeem_amount).label('redeem_amount'),
-        func.sum(models.DailyData.refund_amount).label('refund_amount'),
-        func.sum(models.DailyData.refund_items).label('refund_items'),
-        func.sum(models.DailyData.live_refund_amount).label('live_refund_amount'),
-        func.sum(models.DailyData.live_consume_amount).label('live_consume_amount'),
-        func.sum(models.DailyData.profit).label('profit'),
-    ).filter(models.DailyData.date >= start_date, models.DailyData.date <= end_date)
-    
-    result = apply_product_filter(result, product_ids).first()
+    if product_ids:
+        result = db.query(
+            func.sum(models.DailyProductSummary.pay_amount).label('pay_amount'),
+            func.sum(models.DailyProductSummary.pay_orders).label('pay_orders'),
+            func.sum(models.DailyProductSummary.pay_items).label('pay_items'),
+            func.sum(models.DailyProductSummary.redeem_items).label('redeem_items'),
+            func.sum(models.DailyProductSummary.redeem_amount).label('redeem_amount'),
+            func.sum(models.DailyProductSummary.refund_amount).label('refund_amount'),
+            func.sum(models.DailyProductSummary.refund_items).label('refund_items'),
+            func.sum(models.DailyProductSummary.live_refund_amount).label('live_refund_amount'),
+            func.sum(models.DailyProductSummary.live_consume_amount).label('live_consume_amount'),
+            func.sum(models.DailyProductSummary.profit).label('profit'),
+        ).filter(
+            models.DailyProductSummary.date >= start_date,
+            models.DailyProductSummary.date <= end_date,
+        )
+        result = apply_product_filter(result, product_ids, models.DailyProductSummary).first()
+    else:
+        result = db.query(
+            func.sum(models.DailySummary.pay_amount).label('pay_amount'),
+            func.sum(models.DailySummary.pay_orders).label('pay_orders'),
+            func.sum(models.DailySummary.pay_items).label('pay_items'),
+            func.sum(models.DailySummary.redeem_items).label('redeem_items'),
+            func.sum(models.DailySummary.redeem_amount).label('redeem_amount'),
+            func.sum(models.DailySummary.refund_amount).label('refund_amount'),
+            func.sum(models.DailySummary.refund_items).label('refund_items'),
+            func.sum(models.DailySummary.live_refund_amount).label('live_refund_amount'),
+            func.sum(models.DailySummary.live_consume_amount).label('live_consume_amount'),
+            func.sum(models.DailySummary.profit).label('profit'),
+        ).filter(models.DailySummary.date >= start_date, models.DailySummary.date <= end_date).first()
 
     if not result:
         return None
@@ -516,7 +863,13 @@ def get_data(startDate: str, endDate: str, productIds: str = None, db: Session =
 
 
 @app.get("/compare/aggregate")
-def get_compare_aggregate(startDate: str, endDate: str, productIds: str = None, db: Session = Depends(get_db)):
+def get_compare_aggregate(
+    startDate: str,
+    endDate: str,
+    productIds: str = None,
+    metrics: str = None,
+    db: Session = Depends(get_db),
+):
     try:
         start = datetime.strptime(startDate, "%Y-%m-%d").date()
         end = datetime.strptime(endDate, "%Y-%m-%d").date()
@@ -524,55 +877,77 @@ def get_compare_aggregate(startDate: str, endDate: str, productIds: str = None, 
         raise HTTPException(status_code=400, detail="Invalid dates")
 
     parsed_product_ids = parse_product_ids(productIds)
+    selected_metrics = parse_compare_metrics(metrics)
+    sum_metrics = list(dict.fromkeys(
+        metric
+        for selected_metric in selected_metrics
+        for metric in [selected_metric, *COMPARE_TOTAL_DEPENDENCIES.get(selected_metric, ())]
+    ))
+    dependency_only_metrics = [metric for metric in sum_metrics if metric not in selected_metrics]
     selected_range_day_count = (end - start).days + 1
 
     query_columns = [
-        models.DailyData.product_id,
+        models.DailyProductSummary.product_id,
         models.Product.name.label("product_name"),
-        func.count(func.distinct(models.DailyData.date)).label("days_count"),
+        func.count(func.distinct(models.DailyProductSummary.date)).label("days_count"),
     ]
-    for metric in COMPARE_METRIC_FIELDS:
-        metric_column = getattr(models.DailyData, metric)
+    for metric in selected_metrics:
+        metric_column = getattr(models.DailyProductSummary, metric)
         query_columns.extend([
             func.sum(metric_column).label(f"{metric}_total"),
             func.max(metric_column).label(f"{metric}_max"),
             func.min(metric_column).label(f"{metric}_min"),
             func.avg(metric_column).label(f"{metric}_avg_existing"),
         ])
+    for metric in dependency_only_metrics:
+        metric_column = getattr(models.DailyProductSummary, metric)
+        query_columns.append(func.sum(metric_column).label(f"{metric}_total"))
 
-    query = db.query(*query_columns)\
-        .join(models.Product, models.DailyData.product_id == models.Product.id)\
-        .filter(models.DailyData.date >= start, models.DailyData.date <= end)
-    query = apply_product_filter(query, parsed_product_ids)
+    query = db.query(*query_columns).join(
+        models.Product,
+        models.DailyProductSummary.product_id == models.Product.id,
+    ).filter(
+        models.DailyProductSummary.date >= start,
+        models.DailyProductSummary.date <= end,
+    )
+    query = apply_product_filter(query, parsed_product_ids, models.DailyProductSummary)
 
-    results = query.group_by(models.DailyData.product_id, models.Product.name).all()
+    results = query.group_by(
+        models.DailyProductSummary.product_id,
+        models.Product.name,
+    ).all()
     rows = []
-    overall_totals = {metric: 0.0 for metric in COMPARE_METRIC_FIELDS}
+    overall_totals = {metric: 0.0 for metric in selected_metrics}
 
     overall_query_columns = []
-    for metric in COMPARE_METRIC_FIELDS:
-        metric_column = getattr(models.DailyData, metric)
+    for metric in selected_metrics:
+        metric_column = getattr(models.DailyProductSummary, metric)
         overall_query_columns.extend([
             func.sum(metric_column).label(f"{metric}_total"),
             func.avg(metric_column).label(f"{metric}_avg_existing"),
         ])
+    for metric in dependency_only_metrics:
+        metric_column = getattr(models.DailyProductSummary, metric)
+        overall_query_columns.append(func.sum(metric_column).label(f"{metric}_total"))
 
-    overall_result = db.query(*overall_query_columns)\
-        .filter(models.DailyData.date >= start, models.DailyData.date <= end)
-    overall_result = apply_product_filter(overall_result, parsed_product_ids).first()
+    overall_result = db.query(*overall_query_columns).filter(
+        models.DailyProductSummary.date >= start,
+        models.DailyProductSummary.date <= end,
+    )
+    overall_result = apply_product_filter(overall_result, parsed_product_ids, models.DailyProductSummary).first()
 
     if overall_result:
         overall_sum_values = {
             metric: float(getattr(overall_result, f"{metric}_total") or 0)
-            for metric in COMPARE_METRIC_FIELDS
+            for metric in sum_metrics
         }
         overall_avg_values = {
             metric: float(getattr(overall_result, f"{metric}_avg_existing") or 0)
-            for metric in COMPARE_METRIC_FIELDS
+            for metric in selected_metrics
         }
         overall_totals = {
             metric: compute_display_metric_value(metric, overall_sum_values, overall_avg_values)
-            for metric in COMPARE_METRIC_FIELDS
+            for metric in selected_metrics
         }
 
     for result in results:
@@ -583,15 +958,16 @@ def get_compare_aggregate(startDate: str, endDate: str, productIds: str = None, 
         }
         row_sum_values = {
             metric: float(getattr(result, f"{metric}_total") or 0)
-            for metric in COMPARE_METRIC_FIELDS
+            for metric in sum_metrics
         }
         row_avg_values = {
             metric: float(getattr(result, f"{metric}_avg_existing") or 0)
-            for metric in COMPARE_METRIC_FIELDS
+            for metric in selected_metrics
         }
-        for metric in COMPARE_METRIC_FIELDS:
-            total_value = row_sum_values[metric]
-            row[f"{metric}_avg"] = total_value / selected_range_day_count if selected_range_day_count > 0 else 0
+        for metric in selected_metrics:
+            row[f"{metric}_avg"] = (
+                row_sum_values[metric] / selected_range_day_count if selected_range_day_count > 0 else 0
+            )
             row[f"{metric}_total"] = compute_display_metric_value(metric, row_sum_values, row_avg_values)
             row[f"{metric}_max"] = float(getattr(result, f"{metric}_max") or 0)
             row[f"{metric}_min"] = float(getattr(result, f"{metric}_min") or 0)
@@ -603,6 +979,53 @@ def get_compare_aggregate(startDate: str, endDate: str, productIds: str = None, 
         "selected_range_day_count": selected_range_day_count,
     }
 
+
+@app.get("/compare/trend")
+def get_compare_trend(
+    startDate: str,
+    endDate: str,
+    metric: str,
+    productIds: str = None,
+    db: Session = Depends(get_db),
+):
+    try:
+        start = datetime.strptime(startDate, "%Y-%m-%d").date()
+        end = datetime.strptime(endDate, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid dates")
+
+    selected_metric = parse_compare_metrics(metric)[0]
+    metric_column = getattr(models.DailyProductSummary, selected_metric)
+
+    query = db.query(
+        models.DailyProductSummary.product_id,
+        models.Product.name.label("product_name"),
+        models.DailyProductSummary.date,
+        metric_column.label("metric_value"),
+    ).join(
+        models.Product,
+        models.DailyProductSummary.product_id == models.Product.id,
+    ).filter(
+        models.DailyProductSummary.date >= start,
+        models.DailyProductSummary.date <= end,
+    )
+    query = apply_product_filter(query, parse_product_ids(productIds), models.DailyProductSummary)
+
+    results = query.order_by(
+        models.DailyProductSummary.date.asc(),
+        models.Product.name.asc(),
+    ).all()
+
+    return [
+        {
+            "product_id": row.product_id,
+            "product_name": row.product_name,
+            "date": row.date.strftime("%Y-%m-%d"),
+            "value": float(row.metric_value or 0),
+        }
+        for row in results
+    ]
+
 @app.delete("/data")
 def delete_data(date: str, db: Session = Depends(get_db)):
     try:
@@ -612,7 +1035,9 @@ def delete_data(date: str, db: Session = Depends(get_db)):
          
     deleted = db.query(models.DailyData).filter(models.DailyData.date == target_date).delete()
     deleted_reviews = db.query(models.PendingOrder).filter(models.PendingOrder.date == target_date).delete()
+    refresh_materialized_summaries(db, target_date)
     db.commit()
+    clear_runtime_caches()
     
     if deleted > 0 or deleted_reviews > 0:
         msg = f"成功清除了 {date} 的全部数据"
@@ -639,7 +1064,9 @@ def delete_commodity_data(date: str, db: Session = Depends(get_db)):
                 if col.name not in ["id", "product_id", "date", "profit"]:
                     setattr(r, col.name, 0)
         count += 1
+    refresh_materialized_summaries(db, target_date)
     db.commit()
+    clear_runtime_caches()
     
     if count > 0:
         return {"message": f"成功清空了 {date} 的商品常规数据"}
@@ -672,7 +1099,9 @@ def delete_order_data(date: str, db: Session = Depends(get_db)):
     deleted_reviews = db.query(models.PendingOrder).filter(
         models.PendingOrder.date == target_date
     ).delete()
+    refresh_materialized_summaries(db, target_date)
     db.commit()
+    clear_runtime_caches()
     
     if count > 0 or deleted_reviews > 0:
         msg = f"成功清空了 {date} 的订单利润数据"
@@ -685,6 +1114,14 @@ def delete_order_data(date: str, db: Session = Depends(get_db)):
 import os
 
 # ==================== Pending Order Review Endpoints ====================
+
+class UpdateProfitRequest(BaseModel):
+    profit: float
+
+
+class ApproveOrderRequest(BaseModel):
+    profit: Optional[float] = None
+
 
 @app.get("/pending_orders")
 def get_pending_orders(db: Session = Depends(get_db)):
@@ -710,7 +1147,11 @@ def get_pending_orders(db: Session = Depends(get_db)):
 
 
 @app.post("/approve_order/{order_id}")
-def approve_order(order_id: int, db: Session = Depends(get_db)):
+def approve_order(
+    order_id: int,
+    req: Optional[ApproveOrderRequest] = Body(default=None),
+    db: Session = Depends(get_db),
+):
     """Approve a pending order and move its profit into DailyData."""
     order = db.query(models.PendingOrder).filter(models.PendingOrder.id == order_id).first()
     if not order:
@@ -718,38 +1159,40 @@ def approve_order(order_id: int, db: Session = Depends(get_db)):
     if order.status != "pending":
         raise HTTPException(status_code=400, detail="Order already processed")
 
-    import hashlib
-    # Find or create the product
-    product = db.query(models.Product).filter(models.Product.name == order.product_name).first()
-    if not product:
-        pid = "order_" + hashlib.md5(order.product_name.encode()).hexdigest()[:8]
-        product = models.Product(id=pid, name=order.product_name)
-        db.add(product)
+    try:
+        if req and req.profit is not None:
+            order.profit = req.profit
+
+        product = db.query(models.Product).filter(models.Product.name == order.product_name).first()
+        if not product:
+            product = models.Product(id=build_order_product_id(order.product_name), name=order.product_name)
+            db.add(product)
+            db.flush()
+
+        daily_data = db.query(models.DailyData).filter_by(
+            product_id=product.id, date=order.date
+        ).first()
+        if daily_data:
+            daily_data.profit = (daily_data.profit or 0) + order.profit
+        else:
+            db.add(models.DailyData(
+                product_id=product.id,
+                date=order.date,
+                profit=order.profit
+            ))
+
+        order.status = "approved"
+        refresh_materialized_summaries(db, order.date)
         db.commit()
+        clear_runtime_caches()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to approve order: {exc}") from exc
 
-    # Add profit to DailyData
-    daily_data = db.query(models.DailyData).filter_by(
-        product_id=product.id, date=order.date
-    ).first()
-    if daily_data:
-        daily_data.profit = (daily_data.profit or 0) + order.profit
-    else:
-        daily_data = models.DailyData(
-            product_id=product.id,
-            date=order.date,
-            profit=order.profit
-        )
-        db.add(daily_data)
-
-    order.status = "approved"
-    db.commit()
     return {"message": f"订单已审核通过，利润 {order.profit} 已录入分析数据"}
-
-
-from pydantic import BaseModel
-
-class UpdateProfitRequest(BaseModel):
-    profit: float
 
 @app.put("/pending_order/{order_id}")
 def update_pending_order(order_id: int, req: UpdateProfitRequest, db: Session = Depends(get_db)):
