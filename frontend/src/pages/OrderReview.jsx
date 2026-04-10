@@ -135,31 +135,6 @@ const OrderReview = () => {
 
     return (
         <div>
-            {/* Custom scrollbar styles */}
-            <style>{`
-                .review-scroll-area::-webkit-scrollbar {
-                    width: 10px;
-                }
-                .review-scroll-area::-webkit-scrollbar-track {
-                    background: rgba(0,0,0,0.06);
-                    border-radius: 8px;
-                }
-                .review-scroll-area::-webkit-scrollbar-thumb {
-                    background: rgba(224, 122, 95, 0.45);
-                    border-radius: 8px;
-                    border: 2px solid transparent;
-                    background-clip: padding-box;
-                }
-                .review-scroll-area::-webkit-scrollbar-thumb:hover {
-                    background: rgba(224, 122, 95, 0.7);
-                    background-clip: padding-box;
-                }
-                .review-scroll-area {
-                    scrollbar-width: auto;
-                    scrollbar-color: rgba(224, 122, 95, 0.45) rgba(0,0,0,0.06);
-                }
-            `}</style>
-
             <div className="page-header">
                 <h1 className="page-title">订单审核</h1>
             </div>

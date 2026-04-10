@@ -1,6 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import ReactEChartsCore from 'echarts-for-react/lib/core';
-import dayjs from 'dayjs';
+﻿import { Fragment, Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import { zhCN } from 'date-fns/locale';
 import 'react-datepicker/dist/react-datepicker.css';
@@ -12,15 +10,29 @@ import {
   getProducts,
   getSummary,
 } from '../api';
+import CompareSelectorCard from '../components/CompareSelectorCard';
 import SummaryMetricsGrid from '../components/SummaryMetricsGrid';
-import { echarts } from '../lib/echarts';
+import {
+  formatDateKey,
+  formatDateRangeKeys,
+  getInclusiveDayCount,
+  getTodayDate,
+  parseStoredDate,
+} from '../utils/date';
+import { createDateStatusDayRenderer } from '../utils/dateStatusDayRenderer';
 
 registerLocale('zh-CN', zhCN);
+const LazyCompareCharts = lazy(() => import('../components/CompareCharts'));
 
 const VIRTUALIZATION_THRESHOLD = 120;
 const VIRTUALIZATION_OVERSCAN = 12;
+const TREND_SERIES_LIMIT = 5;
 
 const getDefaultTableRowHeight = () => (window.innerWidth <= 768 ? 40 : 50);
+const getTopTrendProductIds = (rows, metric, limit = TREND_SERIES_LIMIT) => [...rows]
+  .sort((left, right) => (right[`${metric}_total`] || 0) - (left[`${metric}_total`] || 0))
+  .slice(0, limit)
+  .map((row) => row.product_id);
 
 const ALL_METRICS = {
   visitor_count: '访客数',
@@ -81,6 +93,7 @@ const Compare = () => {
   const [metricSearch, setMetricSearch] = useState('');
 
   const [rawData, setRawData] = useState([]);
+  const [trendDates, setTrendDates] = useState([]);
   const [aggregatedRows, setAggregatedRows] = useState([]);
   const [overallTotals, setOverallTotals] = useState({});
   const [comparisonSummary, setComparisonSummary] = useState(null);
@@ -99,16 +112,10 @@ const Compare = () => {
   const [virtualRowHeight, setVirtualRowHeight] = useState(getDefaultTableRowHeight);
   const [visibleRange, setVisibleRange] = useState({ start: 0, end: 0 });
 
-  const selectedRangeDayCount = useMemo(() => {
-    if (!startDate || !endDate) {
-      return 1;
-    }
-
-    const start = dayjs(startDate).startOf('day');
-    const end = dayjs(endDate).startOf('day');
-    const diffDays = end.diff(start, 'day');
-    return diffDays >= 0 ? diffDays + 1 : 1;
-  }, [endDate, startDate]);
+  const selectedRangeDayCount = useMemo(
+    () => getInclusiveDayCount(startDate, endDate),
+    [endDate, startDate],
+  );
 
   const productOptions = useMemo(
     () => products.map((product) => ({ value: product.id, label: product.name })),
@@ -118,6 +125,12 @@ const Compare = () => {
   const metricOptions = useMemo(
     () => METRIC_KEYS.map((metric) => ({ value: metric, label: ALL_METRICS[metric] })),
     [],
+  );
+  const selectedProductSet = useMemo(() => new Set(selectedProducts), [selectedProducts]);
+  const selectedMetricSet = useMemo(() => new Set(selectedMetrics), [selectedMetrics]);
+  const renderDateStatusDay = useMemo(
+    () => createDateStatusDayRenderer(dateStatus),
+    [dateStatus],
   );
 
   const filteredProductOptions = useMemo(() => {
@@ -135,11 +148,19 @@ const Compare = () => {
     }
     return metricOptions.filter((option) => normalizeSearchText(`${option.label}${option.value}`).includes(keyword));
   }, [metricOptions, metricSearch]);
+  const filteredProductValues = useMemo(
+    () => filteredProductOptions.map((option) => option.value),
+    [filteredProductOptions],
+  );
+  const filteredMetricValues = useMemo(
+    () => filteredMetricOptions.map((option) => option.value),
+    [filteredMetricOptions],
+  );
 
   const allFilteredProductsSelected = filteredProductOptions.length > 0
-    && filteredProductOptions.every((option) => selectedProducts.includes(option.value));
+    && filteredProductOptions.every((option) => selectedProductSet.has(option.value));
   const allFilteredMetricsSelected = filteredMetricOptions.length > 0
-    && filteredMetricOptions.every((option) => selectedMetrics.includes(option.value));
+    && filteredMetricOptions.every((option) => selectedMetricSet.has(option.value));
 
   useEffect(() => {
     const bootstrap = async () => {
@@ -148,7 +169,7 @@ const Compare = () => {
         setDates(dbDates);
         setDateStatus(status);
 
-        const fallbackDate = dbDates.length > 0 ? dayjs(dbDates[0]).toDate() : dayjs().toDate();
+        const fallbackDate = dbDates.length > 0 ? parseStoredDate(dbDates[0]) : getTodayDate();
         setStartDate(fallbackDate);
         setEndDate(fallbackDate);
         setPickerStartDate(fallbackDate);
@@ -166,14 +187,13 @@ const Compare = () => {
       return;
     }
 
-    const startStr = dayjs(startDate).format('YYYY-MM-DD');
-    const endStr = dayjs(endDate).format('YYYY-MM-DD');
+    const { startKey: startStr, endKey: endStr } = formatDateRangeKeys(startDate, endDate);
 
     getProducts(startStr, endStr)
       .then((nextProducts) => {
-        const nextProductIds = nextProducts.map((product) => product.id);
+        const nextProductIds = new Set(nextProducts.map((product) => product.id));
         setProducts(nextProducts);
-        setSelectedProducts((previousSelection) => previousSelection.filter((id) => nextProductIds.includes(id)));
+        setSelectedProducts((previousSelection) => previousSelection.filter((id) => nextProductIds.has(id)));
       })
       .catch(console.error);
   }, [endDate, startDate]);
@@ -182,6 +202,7 @@ const Compare = () => {
     setHasGenerated(false);
     setErrorMessage('');
     setRawData([]);
+    setTrendDates([]);
     setAggregatedRows([]);
     setOverallTotals({});
     setComparisonSummary(null);
@@ -320,43 +341,6 @@ const Compare = () => {
     }
   }, [shouldVirtualizeTable, virtualRowHeight, visibleRows]);
 
-  const lineChartModel = useMemo(() => {
-    if (!rawData.length || selectedMetrics.length !== 1) {
-      return null;
-    }
-
-    const activeMetric = selectedMetrics[0];
-    const rankedProducts = [...aggregatedRows]
-      .sort((left, right) => (right[`${activeMetric}_total`] || 0) - (left[`${activeMetric}_total`] || 0))
-      .slice(0, 5);
-    const displayProductIds = rankedProducts.map((row) => row.product_id);
-    const xAxisDates = Array.from(new Set(rawData.map((row) => row.date))).sort();
-    const valueByProductDate = new Map();
-
-    rawData.forEach((row) => {
-      valueByProductDate.set(`${row.product_id}::${row.date}`, parseFloat(row.value || 0));
-    });
-
-    const legend = [];
-    const series = displayProductIds.map((productId) => {
-      const product = rankedProducts.find((row) => row.product_id === productId);
-      const productName = product?.product_name || productId;
-      const shortName = productName.length > 8 ? `${productName.substring(0, 8)}...` : productName;
-      legend.push(shortName);
-
-      return {
-        name: shortName,
-        type: 'line',
-        smooth: true,
-        symbolSize: 8,
-        data: xAxisDates.map((date) => valueByProductDate.get(`${productId}::${date}`) ?? 0),
-        emphasis: { focus: 'series' },
-      };
-    });
-
-    return { activeMetric, legend, series, xAxisDates };
-  }, [aggregatedRows, rawData, selectedMetrics]);
-
   const handleDateRangeChange = (update) => {
     const [start, end] = update;
     if (!start) {
@@ -369,183 +353,55 @@ const Compare = () => {
     setEndDate(end || start);
   };
 
-  const handleToggleOption = (value, setter, selectedValues) => {
-    setter(
-      selectedValues.includes(value)
-        ? selectedValues.filter((item) => item !== value)
-        : [...selectedValues, value],
-    );
-  };
-
-  const handleToggleAllProducts = () => {
-    const filteredIds = filteredProductOptions.map((option) => option.value);
-    if (allFilteredProductsSelected) {
-      setSelectedProducts((previous) => previous.filter((id) => !filteredIds.includes(id)));
-      return;
-    }
-    setSelectedProducts((previous) => [...new Set([...previous, ...filteredIds])]);
-  };
-
-  const handleToggleAllMetrics = () => {
-    const filteredIds = filteredMetricOptions.map((option) => option.value);
-    if (allFilteredMetricsSelected) {
-      setSelectedMetrics((previous) => previous.filter((id) => !filteredIds.includes(id)));
-      return;
-    }
-    setSelectedMetrics((previous) => [...new Set([...previous, ...filteredIds])]);
-  };
-
-  const getLineChartOption = () => {
-    if (!lineChartModel) {
-      return {};
-    }
-
-    const { activeMetric, legend, series, xAxisDates } = lineChartModel;
-    return {
-      title: {
-        text: `趋势：${ALL_METRICS[activeMetric]}`,
-        textStyle: { fontSize: 14, color: 'var(--text-main)', fontWeight: 'normal' },
-      },
-      tooltip: {
-        trigger: 'axis',
-        backgroundColor: 'rgba(255,255,255,0.92)',
-        borderColor: 'var(--glass-border)',
-      },
-      legend: {
-        data: legend,
-        textStyle: { color: 'var(--text-muted)' },
-        type: 'scroll',
-        top: 0,
-        right: 0,
-        width: '60%',
-      },
-      grid: { left: '3%', right: '4%', bottom: '5%', top: '40px', containLabel: true },
-      xAxis: {
-        type: 'category',
-        boundaryGap: false,
-        data: xAxisDates,
-        axisLabel: { color: 'var(--text-muted)' },
-      },
-      yAxis: {
-        type: 'value',
-        axisLabel: { color: 'var(--text-muted)' },
-        splitLine: { lineStyle: { color: 'var(--glass-border)' } },
-      },
-      series,
-    };
-  };
-
-  const getBarChartOption = () => {
-    if (!aggregatedRows.length || selectedMetrics.length !== 1) {
-      return {};
-    }
-
-    const activeMetric = selectedMetrics[0];
-    const top10 = [...aggregatedRows]
-      .sort((left, right) => (right[`${activeMetric}_avg`] || 0) - (left[`${activeMetric}_avg`] || 0))
-      .slice(0, 10);
-
-    return {
-      title: {
-        text: `TOP 10：${ALL_METRICS[activeMetric]}（区间日均）`,
-        textStyle: { fontSize: 14, color: 'var(--text-main)', fontWeight: 'normal' },
-      },
-      tooltip: {
-        trigger: 'axis',
-        axisPointer: { type: 'shadow' },
-        backgroundColor: 'rgba(255,255,255,0.92)',
-      },
-      grid: { left: '3%', right: '4%', bottom: '5%', top: '40px', containLabel: true },
-      xAxis: {
-        type: 'value',
-        axisLabel: { color: 'var(--text-muted)' },
-        splitLine: { lineStyle: { color: 'var(--glass-border)' } },
-      },
-      yAxis: {
-        type: 'category',
-        data: top10.map((item) => (item.product_name.length > 6 ? `${item.product_name.substring(0, 6)}...` : item.product_name)).reverse(),
-        axisLabel: { color: 'var(--text-muted)' },
-      },
-      series: [
-        {
-          name: ALL_METRICS[activeMetric],
-          type: 'bar',
-          data: top10.map((item) => item[`${activeMetric}_avg`] || 0).reverse(),
-          itemStyle: { borderRadius: [0, 4, 4, 0], color: 'var(--accent)' },
-        },
-      ],
-    };
-  };
-
-  const getPieChartOption = () => {
-    if (!aggregatedRows.length || selectedMetrics.length !== 1) {
-      return {};
-    }
-
-    const activeMetric = selectedMetrics[0];
-    const top10 = [...aggregatedRows]
-      .sort((left, right) => (right[`${activeMetric}_total`] || 0) - (left[`${activeMetric}_total`] || 0))
-      .slice(0, 10);
-
-    return {
-      title: {
-        text: `${ALL_METRICS[activeMetric]} 总计占比（Top 10）`,
-        left: 'center',
-        textStyle: { fontSize: 14, color: 'var(--text-main)', fontWeight: 'normal' },
-      },
-      tooltip: { trigger: 'item', backgroundColor: 'rgba(255,255,255,0.92)' },
-      legend: { show: false },
-      series: [
-        {
-          name: ALL_METRICS[activeMetric],
-          type: 'pie',
-          radius: ['40%', '70%'],
-          avoidLabelOverlap: true,
-          itemStyle: {
-            borderRadius: 10,
-            borderColor: 'rgba(255,255,255,0.85)',
-            borderWidth: 2,
-          },
-          label: { show: true, color: 'var(--text-muted)', formatter: '{b}\n{d}%' },
-          data: top10.map((item) => ({
-            value: item[`${activeMetric}_total`] || 0,
-            name: item.product_name.length > 10 ? `${item.product_name.substring(0, 10)}...` : item.product_name,
-          })),
-        },
-      ],
-    };
-  };
-
   const handleSearch = async () => {
     if (!startDate || !endDate || selectedProducts.length === 0 || selectedMetrics.length === 0) {
       return;
     }
 
-    const startStr = dayjs(startDate).format('YYYY-MM-DD');
-    const endStr = dayjs(endDate).format('YYYY-MM-DD');
+    const { startKey: startStr, endKey: endStr } = formatDateRangeKeys(startDate, endDate);
+    const activeTrendMetric = selectedMetrics.length === 1 ? selectedMetrics[0] : '';
 
     setLoading(true);
     setHasGenerated(true);
     setErrorMessage('');
 
     try {
-      const trendPromise = selectedMetrics.length === 1
-        ? getCompareTrend(startStr, endStr, selectedMetrics[0], selectedProducts)
-        : Promise.resolve([]);
-
-      const [aggregateData, summaryData, trendData] = await Promise.all([
+      const [aggregateData, summaryData] = await Promise.all([
         getCompareAggregate(startStr, endStr, selectedProducts, selectedMetrics),
         getSummary(startStr, endStr, selectedProducts),
-        trendPromise,
       ]);
+      const nextAggregatedRows = aggregateData.rows || [];
+      let trendData = [];
+      let nextTrendDates = [];
+
+      if (activeTrendMetric) {
+        const topTrendProductIds = getTopTrendProductIds(nextAggregatedRows, activeTrendMetric);
+        if (topTrendProductIds.length > 0) {
+          try {
+            const trendResponse = await getCompareTrend(
+              startStr,
+              endStr,
+              activeTrendMetric,
+              topTrendProductIds,
+              selectedProducts,
+            );
+            trendData = trendResponse.rows || [];
+            nextTrendDates = trendResponse.dates || [];
+          } catch (trendError) {
+            console.error(trendError);
+          }
+        }
+      }
 
       setRawData(trendData);
-      setAggregatedRows(aggregateData.rows || []);
+      setTrendDates(nextTrendDates);
+      setAggregatedRows(nextAggregatedRows);
       setOverallTotals(aggregateData.overall_totals || {});
       setComparisonSummary(summaryData);
     } catch (error) {
       console.error(error);
       setRawData([]);
+      setTrendDates([]);
       setAggregatedRows([]);
       setOverallTotals({});
       setComparisonSummary(null);
@@ -556,7 +412,7 @@ const Compare = () => {
   };
 
   const handleReset = () => {
-    const latest = dates.length > 0 ? dayjs(dates[0]).toDate() : dayjs().toDate();
+    const latest = dates.length > 0 ? parseStoredDate(dates[0]) : getTodayDate();
     setStartDate(latest);
     setEndDate(latest);
     setPickerStartDate(latest);
@@ -610,9 +466,9 @@ const Compare = () => {
 
     sheetRows.push([]);
     sheetRows.push(['备注']);
-    sheetRows.push(['1. 平均值：累计型指标按区间总值 ÷ 区间总天数；比率/值型指标按区间内每日指标值做日均处理。']);
+    sheetRows.push(['1. 平均值：累计型指标按区间总值除以区间总天数；比率/值型指标按区间内每日指标值做日均处理。']);
     sheetRows.push(['2. 总计：对累计型指标展示区间累计值；对比率/值型指标展示按整体口径重算后的区间值。']);
-    sheetRows.push(['3. 最大值 / 最小值 = 所选区间内该商品在已有数据日期中的单日最大值 / 最小值。']);
+    sheetRows.push(['3. 最大值/最小值：所选区间内该商品在已有数据日期中的单日最大值/最小值。']);
 
     const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
     worksheet['!cols'] = [
@@ -623,9 +479,10 @@ const Compare = () => {
 
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, '多维分析');
+    const { startKey, endKey } = formatDateRangeKeys(startDate, endDate);
     XLSX.writeFile(
       workbook,
-      `多维分析_${dayjs(startDate).format('YYYY-MM-DD')}_至_${dayjs(endDate).format('YYYY-MM-DD')}.xlsx`,
+      `多维分析_${startKey}_至_${endKey}.xlsx`,
     );
   };
 
@@ -675,83 +532,11 @@ const Compare = () => {
     );
   };
 
-  const renderSelectorCard = ({
-    title,
-    tip,
-    searchValue,
-    onSearchChange,
-    searchPlaceholder,
-    selectedCount,
-    totalCount,
-    filteredCount,
-    allSelected,
-    onToggleAll,
-    onClear,
-    clearDisabled,
-    options,
-    selectedValues,
-    setter,
-    emptyText,
-  }) => (
-    <div className="compare-selector-card">
-      <div className="compare-selector-header">
-        <div>
-          <div className="input-label" style={{ marginBottom: '6px' }}>{title}</div>
-          <div className="compare-selector-tip">{tip}</div>
-        </div>
-        <div className="compare-selector-count">已选 {selectedCount} / {totalCount}</div>
-      </div>
-
-      <div className="compare-selector-toolbar">
-        <input
-          className="compare-selector-search"
-          value={searchValue}
-          onChange={(event) => onSearchChange(event.target.value)}
-          placeholder={searchPlaceholder}
-        />
-        <div className="compare-selector-actions">
-          <button type="button" className="compare-selector-action" onClick={onToggleAll} disabled={filteredCount === 0}>
-            {allSelected ? '取消全选当前结果' : '全选当前结果'}
-          </button>
-          <button type="button" className="compare-selector-action" onClick={onClear} disabled={clearDisabled}>
-            清空
-          </button>
-        </div>
-      </div>
-
-      <label className="compare-master-check">
-        <input type="checkbox" checked={allSelected} onChange={onToggleAll} disabled={filteredCount === 0} />
-        <span>全选符合搜索条件的选项（{filteredCount}）</span>
-      </label>
-
-      <div className="compare-checkbox-list">
-        {filteredCount === 0 ? (
-          <div className="compare-selector-empty">{emptyText}</div>
-        ) : (
-          options.map((option) => {
-            const checked = selectedValues.includes(option.value);
-            return (
-              <label className={`compare-checkbox-item ${checked ? 'is-selected' : ''}`} key={option.value}>
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={() => handleToggleOption(option.value, setter, selectedValues)}
-                />
-                <span className="compare-checkbox-label" title={option.label}>{option.label}</span>
-              </label>
-            );
-          })
-        )}
-      </div>
-    </div>
-  );
-
   const getTitlePrefix = () => {
     if (!startDate || !endDate) {
       return '当日';
     }
-    const startStr = dayjs(startDate).format('YYYY-MM-DD');
-    const endStr = dayjs(endDate).format('YYYY-MM-DD');
+    const { startKey: startStr, endKey: endStr } = formatDateRangeKeys(startDate, endDate);
     return startStr === endStr ? '当日' : '该周期';
   };
 
@@ -762,59 +547,8 @@ const Compare = () => {
       </div>
 
       <div className="glass-panel mb-32">
-        <style>{`
-          .compare-datepicker-wrapper .react-datepicker-wrapper { width: 100%; }
-          .compare-datepicker-wrapper .react-datepicker {
-            font-family: inherit;
-            border: 1px solid var(--glass-border);
-            border-radius: 16px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-            padding: 16px;
-            font-size: 1.2rem;
-          }
-          .compare-datepicker-wrapper .react-datepicker__current-month {
-            font-size: 1.5em;
-            padding-bottom: 8px;
-          }
-          .compare-datepicker-wrapper .react-datepicker__navigation { top: 20px; }
-          .compare-datepicker-wrapper .react-datepicker__navigation-icon::before {
-            border-width: 3px 3px 0 0;
-            height: 12px;
-            width: 12px;
-          }
-          .compare-datepicker-wrapper .react-datepicker__day-name,
-          .compare-datepicker-wrapper .react-datepicker__day,
-          .compare-datepicker-wrapper .react-datepicker__time-name {
-            width: 4rem;
-            line-height: 4rem;
-            margin: 0.2rem;
-          }
-          .compare-datepicker-wrapper .react-datepicker__input-container input {
-            width: 100%;
-            background: var(--bg-light);
-            border: 1px solid var(--glass-border);
-            border-radius: 8px;
-            padding: 12px 16px;
-            font-family: inherit;
-            font-size: 15px;
-            color: var(--text-main);
-            outline: none;
-            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-            cursor: pointer;
-          }
-          .compare-datepicker-wrapper .react-datepicker__input-container input:hover {
-            border-color: rgba(224, 122, 95, 0.4);
-            background: rgba(255, 255, 255, 0.9);
-          }
-          .compare-datepicker-wrapper .react-datepicker__input-container input:focus {
-            border-color: var(--accent);
-            box-shadow: 0 0 0 3px rgba(224, 122, 95, 0.15);
-            background: #ffffff;
-          }
-        `}</style>
-
         <div className="mobile-date-row" style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: '24px' }}>
-          <div className="input-group compare-datepicker-wrapper mobile-full-width" style={{ flex: '1 1 320px' }}>
+          <div className="input-group status-datepicker-wrapper is-compare mobile-full-width" style={{ flex: '1 1 320px' }}>
             <div className="mobile-stack" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
               <label className="input-label">分析日期范围</label>
               <div className="mobile-tag-row" style={{ display: 'flex', gap: '12px', fontSize: '12px', color: 'var(--text-muted)' }}>
@@ -833,25 +567,13 @@ const Compare = () => {
               placeholderText="请选择开始和结束日期"
               showPopperArrow={false}
               className="input"
-              renderDayContents={(day, dateObj) => {
-                const dateStr = dayjs(dateObj).format('YYYY-MM-DD');
-                const status = dateStatus[dateStr];
-                return (
-                  <div style={{ position: 'relative', height: '100%', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                    <span style={{ lineHeight: '1.2' }}>{day}</span>
-                    <div style={{ position: 'absolute', bottom: '4px', display: 'flex', gap: '6px', justifyContent: 'center', width: '100%' }}>
-                      {status?.commodity && <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#60A5FA' }} title="已上传商品数据" />}
-                      {status?.order && <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#F59E0B' }} title="已上传利润数据" />}
-                    </div>
-                  </div>
-                );
-              }}
+              renderDayContents={renderDateStatusDay}
             />
           </div>
           <div className="glass-panel" style={{ padding: '14px 18px', minWidth: '260px' }}>
             <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '4px' }}>当前区间</div>
             <div style={{ fontSize: '16px', fontWeight: 600 }}>
-              {startDate ? dayjs(startDate).format('YYYY-MM-DD') : '--'} 至 {endDate ? dayjs(endDate).format('YYYY-MM-DD') : '--'}
+              {startDate ? formatDateKey(startDate) : '--'} 至 {endDate ? formatDateKey(endDate) : '--'}
             </div>
             <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
               日期一变就会自动刷新商品范围，不需要再点确认。
@@ -860,45 +582,48 @@ const Compare = () => {
         </div>
 
         <div className="compare-filter-grid">
-          {renderSelectorCard({
-            title: '过滤商品',
-            tip: '商品列表会跟随日期动态刷新，勾选后只分析这些商品。',
-            searchValue: productSearch,
-            onSearchChange: setProductSearch,
-            searchPlaceholder: '搜索商品名称或商品 ID',
-            selectedCount: selectedProducts.length,
-            totalCount: products.length,
-            filteredCount: filteredProductOptions.length,
-            allSelected: allFilteredProductsSelected,
-            onToggleAll: handleToggleAllProducts,
-            onClear: () => setSelectedProducts([]),
-            clearDisabled: selectedProducts.length === 0,
-            options: filteredProductOptions,
-            selectedValues: selectedProducts,
-            setter: setSelectedProducts,
-            emptyText: '当前没有匹配的商品。',
-          })}
+          <CompareSelectorCard
+            title="过滤商品"
+            tip="商品列表会跟随日期动态刷新，勾选后只分析这些商品。"
+            searchValue={productSearch}
+            onSearchChange={setProductSearch}
+            searchPlaceholder="搜索商品名称或商品 ID"
+            selectedCount={selectedProducts.length}
+            totalCount={products.length}
+            filteredCount={filteredProductOptions.length}
+            allSelected={allFilteredProductsSelected}
+            filteredValues={filteredProductValues}
+            options={filteredProductOptions}
+            selectedValueSet={selectedProductSet}
+            setSelectedValues={setSelectedProducts}
+            toggleAllText={allFilteredProductsSelected ? '取消全选当前结果' : '全选当前结果'}
+            clearText="清空"
+            masterCheckText={`全选符合搜索条件的选项（${filteredProductOptions.length}）`}
+            clearDisabled={selectedProducts.length === 0}
+            emptyText="当前没有匹配的商品。"
+          />
 
-          {renderSelectorCard({
-            title: '关注维度',
-            tip: '维度常驻展示在下方，支持模糊搜索、全选当前结果和即时勾选。',
-            searchValue: metricSearch,
-            onSearchChange: setMetricSearch,
-            searchPlaceholder: '搜索维度名称',
-            selectedCount: selectedMetrics.length,
-            totalCount: METRIC_KEYS.length,
-            filteredCount: filteredMetricOptions.length,
-            allSelected: allFilteredMetricsSelected,
-            onToggleAll: handleToggleAllMetrics,
-            onClear: () => setSelectedMetrics([]),
-            clearDisabled: selectedMetrics.length === 0,
-            options: filteredMetricOptions,
-            selectedValues: selectedMetrics,
-            setter: setSelectedMetrics,
-            emptyText: '当前没有匹配的维度。',
-          })}
+          <CompareSelectorCard
+            title="关注维度"
+            tip="维度常驻展示在下方，支持模糊搜索、全选当前结果和即时勾选。"
+            searchValue={metricSearch}
+            onSearchChange={setMetricSearch}
+            searchPlaceholder="搜索维度名称"
+            selectedCount={selectedMetrics.length}
+            totalCount={METRIC_KEYS.length}
+            filteredCount={filteredMetricOptions.length}
+            allSelected={allFilteredMetricsSelected}
+            filteredValues={filteredMetricValues}
+            options={filteredMetricOptions}
+            selectedValueSet={selectedMetricSet}
+            setSelectedValues={setSelectedMetrics}
+            toggleAllText={allFilteredMetricsSelected ? '取消全选当前结果' : '全选当前结果'}
+            clearText="清空"
+            masterCheckText={`全选符合搜索条件的选项（${filteredMetricOptions.length}）`}
+            clearDisabled={selectedMetrics.length === 0}
+            emptyText="当前没有匹配的维度。"
+          />
         </div>
-
         <div className="mobile-file-row" style={{ display: 'flex', gap: '16px', marginTop: '24px' }}>
           <button className="btn" style={{ flex: 1, justifyContent: 'center' }} onClick={handleSearch} disabled={loading || !startDate || !endDate || selectedProducts.length === 0 || selectedMetrics.length === 0}>
             {loading ? '正在生成分析视图...' : '生成分析视图'}
@@ -920,20 +645,15 @@ const Compare = () => {
             当前只选中了一个维度，所以额外展示趋势图、Top10 日均柱状图和总计占比饼图，便于快速判断区间表现。
           </p>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: '24px', marginBottom: '24px' }}>
-            <div className="chart-container" style={{ height: '350px', background: 'rgba(255,255,255,0.4)', borderRadius: '12px', padding: '16px', border: '1px solid var(--glass-border)' }}>
-              <ReactEChartsCore echarts={echarts} option={getLineChartOption()} style={{ height: '100%' }} opts={{ renderer: 'svg' }} />
-            </div>
-          </div>
-
-          <div className="mobile-chart-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '24px' }}>
-            <div className="chart-container" style={{ height: '350px', background: 'rgba(255,255,255,0.4)', borderRadius: '12px', padding: '16px', border: '1px solid var(--glass-border)' }}>
-              <ReactEChartsCore echarts={echarts} option={getPieChartOption()} style={{ height: '100%' }} opts={{ renderer: 'svg' }} />
-            </div>
-            <div className="chart-container" style={{ height: '350px', background: 'rgba(255,255,255,0.4)', borderRadius: '12px', padding: '16px', border: '1px solid var(--glass-border)' }}>
-              <ReactEChartsCore echarts={echarts} option={getBarChartOption()} style={{ height: '100%' }} opts={{ renderer: 'svg' }} />
-            </div>
-          </div>
+          <Suspense fallback={<div className="compare-chart-panel">Loading charts...</div>}>
+            <LazyCompareCharts
+              aggregatedRows={aggregatedRows}
+              rawData={rawData}
+              trendDates={trendDates}
+              selectedMetrics={selectedMetrics}
+              metricLabels={ALL_METRICS}
+            />
+          </Suspense>
         </div>
       )}
 
@@ -1039,9 +759,9 @@ const Compare = () => {
 
               <div className="compare-table-note">
                 <div className="compare-table-note-title">口径说明</div>
-                <div className="compare-table-note-item">平均值：累计型指标按区间总值 ÷ 区间总天数；比率/值型指标按区间内每日指标值做日均处理。</div>
+                <div className="compare-table-note-item">平均值：累计型指标按区间总值除以区间总天数；比率/值型指标按区间内每日指标值做日均处理。</div>
                 <div className="compare-table-note-item">总计：对累计型指标展示区间累计值；对比率/值型指标展示按整体口径重算后的区间值。</div>
-                <div className="compare-table-note-item">最大值 / 最小值：所选区间内该商品在已有数据日期中的单日最大值 / 最小值。</div>
+                <div className="compare-table-note-item">最大值/最小值：所选区间内该商品在已有数据日期中的单日最大值/最小值。</div>
               </div>
             </div>
 
@@ -1073,3 +793,4 @@ const Compare = () => {
 };
 
 export default Compare;
+

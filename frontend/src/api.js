@@ -7,6 +7,7 @@ const defaultApiUrl = isLocalDevHost
 const GET_CACHE_TTL_MS = 30 * 1000;
 const getResponseCache = new Map();
 const inflightGetRequests = new Map();
+let cacheVersion = 0;
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || defaultApiUrl,
@@ -28,15 +29,19 @@ const buildCacheKey = (endpoint, params = {}) => {
 };
 
 const cloneCachedValue = (value) => {
-  if (typeof structuredClone === 'function') {
-    return structuredClone(value);
+  try {
+    if (typeof structuredClone === 'function') {
+      return structuredClone(value);
+    }
+  } catch {
+    // structuredClone may throw for non-cloneable values; fall through to JSON
   }
   return JSON.parse(JSON.stringify(value));
 };
 
 const invalidateApiCache = () => {
+  cacheVersion++;
   getResponseCache.clear();
-  inflightGetRequests.clear();
 };
 
 const cachedGet = async (endpoint, params = {}, ttlMs = GET_CACHE_TTL_MS) => {
@@ -44,7 +49,7 @@ const cachedGet = async (endpoint, params = {}, ttlMs = GET_CACHE_TTL_MS) => {
   const cachedEntry = getResponseCache.get(cacheKey);
   const now = Date.now();
 
-  if (cachedEntry && now - cachedEntry.timestamp < ttlMs) {
+  if (cachedEntry && now - cachedEntry.timestamp < ttlMs && cachedEntry.version === cacheVersion) {
     return cloneCachedValue(cachedEntry.value);
   }
 
@@ -52,12 +57,16 @@ const cachedGet = async (endpoint, params = {}, ttlMs = GET_CACHE_TTL_MS) => {
     return cloneCachedValue(await inflightGetRequests.get(cacheKey));
   }
 
+  const requestVersion = cacheVersion;
   const requestPromise = api.get(endpoint, { params }).then((response) => {
-    getResponseCache.set(cacheKey, {
-      timestamp: Date.now(),
-      value: response.data,
-    });
     inflightGetRequests.delete(cacheKey);
+    if (requestVersion === cacheVersion) {
+      getResponseCache.set(cacheKey, {
+        timestamp: Date.now(),
+        value: response.data,
+        version: requestVersion,
+      });
+    }
     return response.data;
   }).catch((error) => {
     inflightGetRequests.delete(cacheKey);
@@ -121,8 +130,7 @@ export const getDetailedData = async (startDate, endDate, productIds = null) => 
   if (productIds && productIds.length > 0) {
     params.productIds = productIds.join(',');
   }
-  const res = await api.get('/data', { params });
-  return res.data;
+  return cachedGet('/data', params);
 };
 
 export const getCompareAggregate = async (startDate, endDate, productIds = null, metrics = null) => {
@@ -136,12 +144,43 @@ export const getCompareAggregate = async (startDate, endDate, productIds = null,
   return cachedGet('/compare/aggregate', params);
 };
 
-export const getCompareTrend = async (startDate, endDate, metric, productIds = null) => {
-  const params = { startDate, endDate, metric };
+const normalizeCompareTrendResponse = (payload) => {
+  if (Array.isArray(payload)) {
+    const dates = Array.from(new Set(
+      payload
+        .map((row) => row?.date)
+        .filter(Boolean),
+    )).sort();
+
+    return {
+      dates,
+      rows: payload,
+    };
+  }
+
+  const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+  const dates = Array.isArray(payload?.dates)
+    ? payload.dates
+    : Array.from(new Set(rows.map((row) => row?.date).filter(Boolean))).sort();
+
+  return { dates, rows };
+};
+
+export const getCompareTrend = async (startDate, endDate, metric, productIds = null, axisProductIds = null) => {
+  const params = {
+    startDate,
+    endDate,
+    metric,
+    includeDates: true,
+  };
   if (productIds && productIds.length > 0) {
     params.productIds = productIds.join(',');
   }
-  return cachedGet('/compare/trend', params);
+  if (axisProductIds && axisProductIds.length > 0) {
+    params.axisProductIds = axisProductIds.join(',');
+  }
+  const payload = await cachedGet('/compare/trend', params);
+  return normalizeCompareTrendResponse(payload);
 };
 
 export const deleteData = async (date) => {

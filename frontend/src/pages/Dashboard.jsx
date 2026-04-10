@@ -1,86 +1,93 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AlertCircle } from 'lucide-react';
-import dayjs from 'dayjs';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import { zhCN } from 'date-fns/locale';
 import 'react-datepicker/dist/react-datepicker.css';
 import { getDateStatus, getDates, getSummary } from '../api';
 import SummaryMetricsGrid from '../components/SummaryMetricsGrid';
+import { formatDateRangeKeys, parseStoredDate } from '../utils/date';
+import { createDateStatusDayRenderer } from '../utils/dateStatusDayRenderer';
 
 registerLocale('zh-CN', zhCN);
 
 const Dashboard = () => {
   const [dates, setDates] = useState([]);
-  const [dateRange, setDateRange] = useState([null, null]);
-  const [confirmedRange, setConfirmedRange] = useState([null, null]);
+  const [pickerStartDate, setPickerStartDate] = useState(null);
+  const [pickerEndDate, setPickerEndDate] = useState(null);
+  const [startDate, setStartDate] = useState(null);
+  const [endDate, setEndDate] = useState(null);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [dateStatus, setDateStatus] = useState({});
 
+  const renderDateStatusDay = useMemo(
+    () => createDateStatusDayRenderer(dateStatus, { compact: true }),
+    [dateStatus],
+  );
+
   useEffect(() => {
-    fetchDates();
-    getDateStatus().then(setDateStatus).catch(console.error);
+    const bootstrap = async () => {
+      try {
+        const [dbDates, status] = await Promise.all([getDates(), getDateStatus()]);
+        setDates(dbDates);
+        setDateStatus(status);
+
+        if (dbDates.length > 0) {
+          const latest = parseStoredDate(dbDates[0]);
+          setPickerStartDate(latest);
+          setPickerEndDate(latest);
+          setStartDate(latest);
+          setEndDate(latest);
+        }
+      } catch (error) {
+        console.error(error);
+      }
+    };
+
+    bootstrap();
   }, []);
 
   useEffect(() => {
-    if (!confirmedRange[0]) {
+    if (!startDate) {
       return;
     }
 
-    const startStr = dayjs(confirmedRange[0]).format('YYYY-MM-DD');
-    const endStr = confirmedRange[1] ? dayjs(confirmedRange[1]).format('YYYY-MM-DD') : startStr;
-    fetchSummary(startStr, endStr);
-  }, [confirmedRange]);
+    const { startKey, endKey } = formatDateRangeKeys(startDate, endDate);
 
-  const fetchDates = async () => {
-    try {
-      const dbDates = await getDates();
-      setDates(dbDates);
-      if (dbDates.length > 0) {
-        const latest = dayjs(dbDates[0]).toDate();
-        setDateRange([latest, latest]);
-        setConfirmedRange([latest, latest]);
+    const fetchSummary = async () => {
+      setLoading(true);
+      try {
+        const summary = await getSummary(startKey, endKey);
+        setData(summary);
+      } catch (error) {
+        console.error(error);
+        setData(null);
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      console.error(error);
-    }
-  };
+    };
 
-  const fetchSummary = async (startDate, endDate) => {
-    setLoading(true);
-    try {
-      const summary = await getSummary(startDate, endDate);
-      setData(summary);
-    } catch (error) {
-      console.error(error);
-      setData(null);
-    } finally {
-      setLoading(false);
-    }
-  };
+    fetchSummary();
+  }, [startDate, endDate]);
 
   const handleDateRangeChange = (update) => {
-    setDateRange(update);
-  };
-
-  const handleConfirmDate = () => {
-    const [start, end] = dateRange;
-    if (start && end) {
-      setConfirmedRange([start, end]);
+    const [start, end] = update;
+    if (!start) {
       return;
     }
-    if (start) {
-      setConfirmedRange([start, start]);
-    }
+    setPickerStartDate(start);
+    setPickerEndDate(end);
+    setStartDate(start);
+    setEndDate(end || start);
   };
 
   const getTitlePrefix = () => {
-    if (!confirmedRange[0]) {
+    if (!startDate) {
       return '当日';
     }
-    const startStr = dayjs(confirmedRange[0]).format('YYYY-MM-DD');
-    const endStr = confirmedRange[1] ? dayjs(confirmedRange[1]).format('YYYY-MM-DD') : startStr;
-    return startStr === endStr ? '当日' : '该周期';
+
+    const { startKey, endKey } = formatDateRangeKeys(startDate, endDate);
+    return startKey === endKey ? '当日' : '该周期';
   };
 
   if (!dates.length) {
@@ -99,40 +106,6 @@ const Dashboard = () => {
       </div>
 
       <div className="glass-panel" style={{ marginBottom: '24px', position: 'relative', zIndex: 20 }}>
-        <style>{`
-          .dashboard-datepicker-wrapper .react-datepicker-wrapper { width: 300px; }
-          .dashboard-datepicker-wrapper .react-datepicker {
-            font-family: inherit;
-            border: 1px solid var(--glass-border);
-            border-radius: 16px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-            padding: 16px;
-            font-size: 1.2rem;
-          }
-          .dashboard-datepicker-wrapper .react-datepicker__current-month { font-size: 1.5em; padding-bottom: 8px; }
-          .dashboard-datepicker-wrapper .react-datepicker__navigation { top: 20px; }
-          .dashboard-datepicker-wrapper .react-datepicker__navigation-icon::before { border-width: 3px 3px 0 0; height: 12px; width: 12px; }
-          .dashboard-datepicker-wrapper .react-datepicker__day-name,
-          .dashboard-datepicker-wrapper .react-datepicker__day,
-          .dashboard-datepicker-wrapper .react-datepicker__time-name { width: 4rem; line-height: 4rem; margin: 0.2rem; }
-          .dashboard-datepicker-wrapper .react-datepicker__input-container input {
-            width: 100%;
-            background: rgba(255, 255, 255, 0.9);
-            border: 1px solid var(--glass-border);
-            border-radius: 8px;
-            padding: 8px 14px;
-            font-family: inherit;
-            font-size: 15px;
-            color: var(--text-main);
-            outline: none;
-            transition: all 0.2s;
-            cursor: pointer;
-            text-align: center;
-          }
-          .dashboard-datepicker-wrapper .react-datepicker__input-container input:hover { border-color: rgba(224, 122, 95, 0.4); }
-          .dashboard-datepicker-wrapper .react-datepicker__input-container input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(224, 122, 95, 0.15); }
-        `}</style>
-
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
           <div className="mobile-tag-row" style={{ display: 'flex', gap: '16px', alignItems: 'center', fontSize: '13px', color: 'var(--text-muted)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
@@ -142,41 +115,22 @@ const Dashboard = () => {
               <div style={{ width: '9px', height: '9px', borderRadius: '50%', backgroundColor: '#F59E0B' }} />利润数据
             </div>
           </div>
+
           <div className="mobile-date-row" style={{ display: 'flex', gap: '12px', alignItems: 'center', justifyContent: 'center' }}>
-            <div className="dashboard-datepicker-wrapper mobile-full-width">
+            <div className="status-datepicker-wrapper is-dashboard mobile-full-width">
               <DatePicker
                 selectsRange
-                startDate={dateRange[0]}
-                endDate={dateRange[1]}
+                startDate={pickerStartDate}
+                endDate={pickerEndDate}
                 onChange={handleDateRangeChange}
                 dateFormat="yyyy-MM-dd"
                 locale="zh-CN"
                 isClearable={false}
                 placeholderText="请选择日期或范围"
                 showPopperArrow={false}
-                renderDayContents={(day, dateObj) => {
-                  const dateStr = dayjs(dateObj).format('YYYY-MM-DD');
-                  const status = dateStatus[dateStr];
-                  return (
-                    <div style={{ position: 'relative', height: '100%', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                      <span style={{ lineHeight: '1.2' }}>{day}</span>
-                      <div style={{ position: 'absolute', bottom: '4px', display: 'flex', gap: '5px', justifyContent: 'center', width: '100%' }}>
-                        {status?.commodity && <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#60A5FA' }} title="已上传商品数据" />}
-                        {status?.order && <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#F59E0B' }} title="已上传利润数据" />}
-                      </div>
-                    </div>
-                  );
-                }}
+                renderDayContents={renderDateStatusDay}
               />
             </div>
-            <button
-              className="btn"
-              style={{ padding: '8px 20px', fontSize: '14px', flexShrink: 0 }}
-              onClick={handleConfirmDate}
-              disabled={!dateRange[0]}
-            >
-              确认
-            </button>
           </div>
         </div>
       </div>
@@ -186,7 +140,7 @@ const Dashboard = () => {
       ) : data?.today ? (
         <SummaryMetricsGrid summary={data} prefix={getTitlePrefix()} />
       ) : (
-        <div>获取数据出错或当前日期范围内暂无可展示数据。</div>
+        <div>获取数据出错，或当前日期范围内暂无可展示数据。</div>
       )}
     </div>
   );

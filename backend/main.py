@@ -1,5 +1,7 @@
 import hashlib
 import io
+import os
+import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Optional
@@ -23,6 +25,7 @@ def _run_migrations():
         try:
             conn.execute(text("SELECT profit FROM daily_data LIMIT 1"))
         except Exception:
+            conn.rollback()
             conn.execute(text("ALTER TABLE daily_data ADD COLUMN profit FLOAT DEFAULT 0"))
             conn.commit()
 
@@ -31,12 +34,15 @@ def _run_migrations():
         try:
             conn.execute(text("SELECT 1 FROM pending_orders LIMIT 1"))
         except Exception:
+            conn.rollback()
             models.Base.metadata.tables['pending_orders'].create(bind=engine)
+            conn.commit()
 
         # 3. Add 'salesperson' column to pending_orders if missing
         try:
             conn.execute(text("SELECT salesperson FROM pending_orders LIMIT 1"))
         except Exception:
+            conn.rollback()
             conn.execute(text("ALTER TABLE pending_orders ADD COLUMN salesperson TEXT DEFAULT ''"))
             conn.commit()
 
@@ -45,7 +51,9 @@ def _run_migrations():
         try:
             conn.execute(text("SELECT 1 FROM daily_product_summaries LIMIT 1"))
         except Exception:
+            conn.rollback()
             models.Base.metadata.tables["daily_product_summaries"].create(bind=engine)
+            conn.commit()
 
         # 5. Add indexes used by hot query paths
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_products_name ON products (name)"))
@@ -210,7 +218,68 @@ TOTAL_RATE_FIELDS = (
     "profit",
 )
 
-PRODUCT_LIST_CACHE = {}
+class ProductDateIndex:
+    _CACHE_TTL = 60  # seconds
+
+    def __init__(self):
+        self._index = None
+        self._all_products = None
+        self._loaded_at = 0
+    
+    def clear(self):
+        self._index = None
+        self._all_products = None
+        self._loaded_at = 0
+    
+    def _is_stale(self):
+        return self._index is None or (time.monotonic() - self._loaded_at) > self._CACHE_TTL
+    
+    def get_products(self, db, start_date=None, end_date=None):
+        if self._is_stale():
+            results = db.query(
+                models.DailyProductSummary.product_id,
+                models.Product.name,
+                models.DailyProductSummary.date
+            ).join(
+                models.Product,
+                models.DailyProductSummary.product_id == models.Product.id
+            ).all()
+            
+            products_map = {}
+            for pid, pname, pdt in results:
+                try:
+                    pdt_val = pdt.strftime("%Y-%m-%d")
+                except AttributeError:
+                    pdt_val = str(pdt)
+                if pid not in products_map:
+                    products_map[pid] = {'name': pname, 'dates': set()}
+                products_map[pid]['dates'].add(pdt_val)
+                
+            self._index = sorted([
+                (pid, data['name'], data['dates'])
+                for pid, data in products_map.items()
+            ], key=lambda x: x[1])
+            
+            self._all_products = sorted([
+                 {"id": p.id, "name": p.name} 
+                 for p in db.query(models.Product).all()
+            ], key=lambda x: x["name"])
+
+            self._loaded_at = time.monotonic()
+        
+        if not start_date or not end_date:
+            return self._all_products
+            
+        start_str = start_date.strftime("%Y-%m-%d") if hasattr(start_date, "strftime") else str(start_date)
+        end_str = end_date.strftime("%Y-%m-%d") if hasattr(end_date, "strftime") else str(end_date)
+            
+        res = []
+        for pid, pname, dates in self._index:
+            if any(start_str <= d <= end_str for d in dates):
+                res.append({"id": pid, "name": pname})
+        return res
+
+PRODUCT_INDEX = ProductDateIndex()
 
 
 def safe_divide(numerator, denominator, multiplier=1):
@@ -266,11 +335,11 @@ def normalize_float_cell(value):
 
 
 def build_order_product_id(product_name):
-    return "order_" + hashlib.md5(product_name.encode("utf-8")).hexdigest()[:8]
+    return "order_" + hashlib.md5(product_name.encode("utf-8")).hexdigest()
 
 
 def clear_runtime_caches():
-    PRODUCT_LIST_CACHE.clear()
+    PRODUCT_INDEX.clear()
 
 
 def refresh_daily_product_summary(db, target_date):
@@ -279,31 +348,17 @@ def refresh_daily_product_summary(db, target_date):
         models.DailyProductSummary.date == target_date
     ).delete(synchronize_session=False)
 
-    summary_rows = db.query(
-        models.DailyData,
-        models.Product.name.label("product_name"),
-    ).join(
-        models.Product,
-        models.DailyData.product_id == models.Product.id,
-    ).filter(
-        models.DailyData.date == target_date,
-    ).all()
-
-    if not summary_rows:
-        return
-
-    payload = []
-    for record, product_name in summary_rows:
-        row = {
-            "date": target_date,
-            "product_id": record.product_id,
-            "product_name": product_name,
-        }
-        for field in DAILY_PRODUCT_SUMMARY_FIELDS:
-            row[field] = float(getattr(record, field) or 0)
-        payload.append(row)
-
-    db.bulk_insert_mappings(models.DailyProductSummary, payload)
+    field_list = ", ".join(DAILY_PRODUCT_SUMMARY_FIELDS)
+    coalesce_list = ", ".join(f"COALESCE(d.{f}, 0)" for f in DAILY_PRODUCT_SUMMARY_FIELDS)
+    db.execute(
+        text(
+            f"INSERT INTO daily_product_summaries (date, product_id, product_name, {field_list}) "
+            f"SELECT d.date, d.product_id, p.name, {coalesce_list} "
+            f"FROM daily_data d JOIN products p ON d.product_id = p.id "
+            f"WHERE d.date = :target_date"
+        ),
+        {"target_date": target_date},
+    )
 
 
 def refresh_daily_summary(db, target_date):
@@ -673,36 +728,14 @@ def get_date_status(db: Session = Depends(get_db)):
 
 @app.get("/products")
 def get_products(startDate: str = None, endDate: str = None, db: Session = Depends(get_db)):
-    cache_key = (startDate or "", endDate or "")
-    cached_products = PRODUCT_LIST_CACHE.get(cache_key)
-    if cached_products is not None:
-        return cached_products
-
     if startDate and endDate:
         try:
             start = datetime.strptime(startDate, "%Y-%m-%d").date()
             end = datetime.strptime(endDate, "%Y-%m-%d").date()
-            products = db.query(
-                models.DailyProductSummary.product_id,
-                models.Product.name,
-            ).join(
-                models.Product,
-                models.DailyProductSummary.product_id == models.Product.id,
-            ).filter(
-                models.DailyProductSummary.date >= start,
-                models.DailyProductSummary.date <= end,
-            ).distinct().order_by(
-                models.Product.name.asc()
-            ).all()
-            payload = [{"id": product_id, "name": product_name} for product_id, product_name in products]
-            PRODUCT_LIST_CACHE[cache_key] = payload
-            return payload
+            return PRODUCT_INDEX.get_products(db, start, end)
         except ValueError:
             pass # fallback to all products if date invalid
-    products = db.query(models.Product).order_by(models.Product.name.asc()).all()
-    payload = [{"id": p.id, "name": p.name} for p in products]
-    PRODUCT_LIST_CACHE[cache_key] = payload
-    return payload
+    return PRODUCT_INDEX.get_products(db)
 
 def compute_total_rate(db, start_date, end_date, product_ids=None):
     if product_ids:
@@ -893,12 +926,28 @@ def get_compare_aggregate(
     ]
     for metric in selected_metrics:
         metric_column = getattr(models.DailyProductSummary, metric)
+        weight_col = None
+
+        if metric in {"bounce_rate", "silent_pay_conversion"}:
+            weight_col = models.DailyProductSummary.visitor_count
+        elif metric == "live_consume_rate":
+            weight_col = models.DailyProductSummary.live_pay_users
+        elif metric == "price_multiplier":
+            weight_col = models.DailyProductSummary.pay_users
+
+        if weight_col is not None:
+            avg_expr = func.sum(metric_column * weight_col) / func.nullif(func.sum(weight_col), 0)
+        else:
+            avg_expr = func.avg(metric_column)
+
         query_columns.extend([
             func.sum(metric_column).label(f"{metric}_total"),
             func.max(metric_column).label(f"{metric}_max"),
             func.min(metric_column).label(f"{metric}_min"),
-            func.avg(metric_column).label(f"{metric}_avg_existing"),
+            avg_expr.label(f"{metric}_avg_existing"),
         ])
+        if weight_col is not None:
+            query_columns.append(func.sum(weight_col).label(f"{metric}_weight_sum"))
     for metric in dependency_only_metrics:
         metric_column = getattr(models.DailyProductSummary, metric)
         query_columns.append(func.sum(metric_column).label(f"{metric}_total"))
@@ -917,38 +966,33 @@ def get_compare_aggregate(
         models.Product.name,
     ).all()
     rows = []
-    overall_totals = {metric: 0.0 for metric in selected_metrics}
+    # Compute overall totals from per-product results (eliminates a duplicate DB query)
+    overall_sum_values = {metric: 0.0 for metric in sum_metrics}
+    overall_weighted_numerators = {}
+    overall_weight_denominators = {}
 
-    overall_query_columns = []
+    for result in results:
+        for metric in sum_metrics:
+            overall_sum_values[metric] += float(getattr(result, f"{metric}_total") or 0)
+        for metric in selected_metrics:
+            if metric in NON_ADDITIVE_AVERAGE_FIELDS:
+                weight_sum = float(getattr(result, f"{metric}_weight_sum", 0) or 0)
+                avg_val = float(getattr(result, f"{metric}_avg_existing") or 0)
+                overall_weighted_numerators[metric] = overall_weighted_numerators.get(metric, 0) + avg_val * weight_sum
+                overall_weight_denominators[metric] = overall_weight_denominators.get(metric, 0) + weight_sum
+
+    overall_avg_values = {}
     for metric in selected_metrics:
-        metric_column = getattr(models.DailyProductSummary, metric)
-        overall_query_columns.extend([
-            func.sum(metric_column).label(f"{metric}_total"),
-            func.avg(metric_column).label(f"{metric}_avg_existing"),
-        ])
-    for metric in dependency_only_metrics:
-        metric_column = getattr(models.DailyProductSummary, metric)
-        overall_query_columns.append(func.sum(metric_column).label(f"{metric}_total"))
+        if metric in NON_ADDITIVE_AVERAGE_FIELDS:
+            denom = overall_weight_denominators.get(metric, 0)
+            overall_avg_values[metric] = (overall_weighted_numerators.get(metric, 0) / denom) if denom else 0.0
+        else:
+            overall_avg_values[metric] = 0.0
 
-    overall_result = db.query(*overall_query_columns).filter(
-        models.DailyProductSummary.date >= start,
-        models.DailyProductSummary.date <= end,
-    )
-    overall_result = apply_product_filter(overall_result, parsed_product_ids, models.DailyProductSummary).first()
-
-    if overall_result:
-        overall_sum_values = {
-            metric: float(getattr(overall_result, f"{metric}_total") or 0)
-            for metric in sum_metrics
-        }
-        overall_avg_values = {
-            metric: float(getattr(overall_result, f"{metric}_avg_existing") or 0)
-            for metric in selected_metrics
-        }
-        overall_totals = {
-            metric: compute_display_metric_value(metric, overall_sum_values, overall_avg_values)
-            for metric in selected_metrics
-        }
+    overall_totals = {
+        metric: compute_display_metric_value(metric, overall_sum_values, overall_avg_values)
+        for metric in selected_metrics
+    }
 
     for result in results:
         row = {
@@ -986,6 +1030,8 @@ def get_compare_trend(
     endDate: str,
     metric: str,
     productIds: str = None,
+    axisProductIds: str = None,
+    includeDates: bool = False,
     db: Session = Depends(get_db),
 ):
     try:
@@ -995,6 +1041,8 @@ def get_compare_trend(
         raise HTTPException(status_code=400, detail="Invalid dates")
 
     selected_metric = parse_compare_metrics(metric)[0]
+    trend_product_ids = parse_product_ids(productIds)
+    axis_product_ids = parse_product_ids(axisProductIds) or trend_product_ids
     metric_column = getattr(models.DailyProductSummary, selected_metric)
 
     query = db.query(
@@ -1009,14 +1057,26 @@ def get_compare_trend(
         models.DailyProductSummary.date >= start,
         models.DailyProductSummary.date <= end,
     )
-    query = apply_product_filter(query, parse_product_ids(productIds), models.DailyProductSummary)
+    query = apply_product_filter(query, trend_product_ids, models.DailyProductSummary)
 
     results = query.order_by(
         models.DailyProductSummary.date.asc(),
         models.Product.name.asc(),
     ).all()
 
-    return [
+    date_query = db.query(
+        models.DailyProductSummary.date,
+    ).filter(
+        models.DailyProductSummary.date >= start,
+        models.DailyProductSummary.date <= end,
+    )
+    date_query = apply_product_filter(date_query, axis_product_ids, models.DailyProductSummary)
+    distinct_dates = [
+        row.date.strftime("%Y-%m-%d")
+        for row in date_query.distinct().order_by(models.DailyProductSummary.date.asc()).all()
+    ]
+
+    rows = [
         {
             "product_id": row.product_id,
             "product_name": row.product_name,
@@ -1025,6 +1085,14 @@ def get_compare_trend(
         }
         for row in results
     ]
+
+    if includeDates:
+        return {
+            "dates": distinct_dates,
+            "rows": rows,
+        }
+
+    return rows
 
 @app.delete("/data")
 def delete_data(date: str, db: Session = Depends(get_db)):
@@ -1110,8 +1178,6 @@ def delete_order_data(date: str, db: Session = Depends(get_db)):
         return {"message": msg}
     else:
         return {"message": f"{date} 当天没有相应的订单利润数据"}
-
-import os
 
 # ==================== Pending Order Review Endpoints ====================
 

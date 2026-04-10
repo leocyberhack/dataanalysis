@@ -1,15 +1,20 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { UploadCloud, Trash2 } from 'lucide-react';
 import { uploadData, uploadOrderData, deleteCommodityData, deleteOrderData, deleteData, getDateStatus } from '../api';
-import dayjs from 'dayjs';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import { zhCN } from 'date-fns/locale';
 import 'react-datepicker/dist/react-datepicker.css';
+import { formatDateKey, getTodayDate } from '../utils/date';
+import { createDateStatusDayRenderer } from '../utils/dateStatusDayRenderer';
 registerLocale('zh-CN', zhCN);
 
 const Upload = () => {
-    const [date, setDate] = useState(dayjs().toDate());
+    const [date, setDate] = useState(getTodayDate());
     const [dateStatus, setDateStatus] = useState({});
+    const renderDateStatusDay = useMemo(
+        () => createDateStatusDayRenderer(dateStatus),
+        [dateStatus],
+    );
 
     const refreshDateStatus = () => {
         getDateStatus().then(d => setDateStatus(d)).catch(e => console.error(e));
@@ -66,7 +71,7 @@ const Upload = () => {
             setComMessage('请选择日期和文件');
             return;
         }
-        const dateStr = dayjs(date).format('YYYY-MM-DD');
+        const dateStr = formatDateKey(date);
         const status = dateStatus[dateStr];
         if (status?.commodity) {
             if (!window.confirm(`[${dateStr}] 已有商品数据，重新上传将覆盖旧的商品数据（利润数据会保留）。确认继续？`)) return;
@@ -90,7 +95,7 @@ const Upload = () => {
             setOrderMessage('请选择日期和文件');
             return;
         }
-        const dateStr = dayjs(date).format('YYYY-MM-DD');
+        const dateStr = formatDateKey(date);
         const status = dateStatus[dateStr];
         if (status?.order) {
             if (!window.confirm(`[${dateStr}] 已有订单利润数据，重新上传将全量覆盖旧的利润数据。确认继续？`)) return;
@@ -114,7 +119,7 @@ const Upload = () => {
             setComMessage('请先选择日期');
             return;
         }
-        const dateStr = dayjs(date).format('YYYY-MM-DD');
+        const dateStr = formatDateKey(date);
         if (!window.confirm(`确定要清空 [${dateStr}] 这天的商品常规数据吗？此操作无法撤销。`)) {
             return;
         }
@@ -136,7 +141,7 @@ const Upload = () => {
             setOrderMessage('请先选择日期');
             return;
         }
-        const dateStr = dayjs(date).format('YYYY-MM-DD');
+        const dateStr = formatDateKey(date);
         if (!window.confirm(`确定要清空 [${dateStr}] 这天的订单利润数据吗？此操作无法撤销。`)) {
             return;
         }
@@ -230,62 +235,6 @@ const Upload = () => {
             </div>
 
             <div style={{ maxWidth: '800px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                <style>
-                    {`
-                    .custom-datepicker-wrapper .react-datepicker-wrapper {
-                        width: 100%;
-                    }
-                    .custom-datepicker-wrapper .react-datepicker {
-                        font-family: inherit;
-                        border: 1px solid var(--glass-border);
-                        border-radius: 16px;
-                        box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-                        padding: 16px;
-                        font-size: 1.2rem;
-                    }
-                    .custom-datepicker-wrapper .react-datepicker__current-month {
-                        font-size: 1.5em;
-                        padding-bottom: 8px;
-                    }
-                    .custom-datepicker-wrapper .react-datepicker__navigation {
-                        top: 20px;
-                    }
-                    .custom-datepicker-wrapper .react-datepicker__navigation-icon::before {
-                        border-width: 3px 3px 0 0;
-                        height: 12px;
-                        width: 12px;
-                    }
-                    .custom-datepicker-wrapper .react-datepicker__day-name, 
-                    .custom-datepicker-wrapper .react-datepicker__day, 
-                    .custom-datepicker-wrapper .react-datepicker__time-name {
-                        width: 4.5rem;
-                        line-height: 4.5rem;
-                        margin: 0.2rem;
-                    }
-                    .custom-datepicker-wrapper .react-datepicker__input-container input {
-                        width: 100%;
-                        background: var(--bg-light);
-                        border: 1px solid var(--glass-border);
-                        border-radius: 8px;
-                        padding: 12px 16px;
-                        font-family: inherit;
-                        font-size: 15px;
-                        color: var(--text-main);
-                        outline: none;
-                        transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-                        cursor: pointer;
-                    }
-                    .custom-datepicker-wrapper .react-datepicker__input-container input:hover {
-                        border-color: rgba(224, 122, 95, 0.4);
-                        background: rgba(255, 255, 255, 0.9);
-                    }
-                    .custom-datepicker-wrapper .react-datepicker__input-container input:focus {
-                        border-color: var(--accent);
-                        box-shadow: 0 0 0 3px rgba(224, 122, 95, 0.15);
-                        background: #ffffff;
-                    }
-                    `}
-                </style>
                 <div className="glass-panel" style={{ padding: '24px', position: 'relative', zIndex: 20 }}>
                     <div className="mobile-stack" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
                         <div>
@@ -301,7 +250,7 @@ const Upload = () => {
                         </div>
                     </div>
 
-                    <div className="input-group custom-datepicker-wrapper" style={{ position: 'relative', zIndex: 1000 }}>
+                    <div className="input-group status-datepicker-wrapper is-upload" style={{ position: 'relative', zIndex: 1000 }}>
                         <DatePicker
                             selected={date}
                             onChange={(d) => setDate(d)}
@@ -309,19 +258,7 @@ const Upload = () => {
                             locale="zh-CN"
                             className="input"
                             isClearable={false}
-                            renderDayContents={(day, dateObj) => {
-                                const dateStr = dayjs(dateObj).format('YYYY-MM-DD');
-                                const status = dateStatus[dateStr];
-                                return (
-                                    <div style={{ position: 'relative', height: '100%', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                                        <span style={{ lineHeight: '1.2' }}>{day}</span>
-                                        <div style={{ position: 'absolute', bottom: '4px', display: 'flex', gap: '6px', justifyContent: 'center', width: '100%' }}>
-                                            {status?.commodity && <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#60A5FA' }} title="已上传商品数据" />}
-                                            {status?.order && <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#F59E0B' }} title="已上传利润数据" />}
-                                        </div>
-                                    </div>
-                                );
-                            }}
+                            renderDayContents={renderDateStatusDay}
                         />
                     </div>
                 </div>

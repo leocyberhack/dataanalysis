@@ -20,7 +20,8 @@ export default defineConfig({
             'echarts/renderers'
           ],
           'xlsx-vendor': ['xlsx'],
-          'ui-vendor': ['lucide-react', 'react-select', 'react-datepicker']
+          'icons-vendor': ['lucide-react'],
+          'datepicker-vendor': ['react-datepicker']
         }
       }
     }
