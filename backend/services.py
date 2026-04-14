@@ -61,7 +61,7 @@ DAILY_PRODUCT_SUMMARY_FIELDS = [
     if column.name not in {"date", "product_id", "product_name"}
 ]
 
-DEFAULT_POI_CONFIG_PATH = Path(__file__).resolve().parent.parent / "POI.json"
+DEFAULT_POI_CONFIG_FILENAME = "POI.json"
 POI_RULE_PATTERN = re.compile(r"^\s*(?P<name>[^()\uFF08\uFF09]+?)\s*(?:[\uFF08(](?P<keywords>.+?)[\uFF09)])?\s*$")
 POI_KEYWORD_SPLIT_PATTERN = re.compile(r"[/\uFF0F]")
 
@@ -150,8 +150,25 @@ def parse_compare_metrics(metrics):
 def get_poi_config_path():
     raw_path = os.environ.get("POI_CONFIG_PATH")
     if raw_path:
-        return Path(raw_path)
-    return DEFAULT_POI_CONFIG_PATH
+        candidate = Path(raw_path)
+        if candidate.exists():
+            return candidate
+
+    module_dir = Path(__file__).resolve().parent
+    candidate_paths = []
+    for candidate in (
+        Path.cwd() / DEFAULT_POI_CONFIG_FILENAME,
+        module_dir / DEFAULT_POI_CONFIG_FILENAME,
+        module_dir.parent / DEFAULT_POI_CONFIG_FILENAME,
+    ):
+        if candidate not in candidate_paths:
+            candidate_paths.append(candidate)
+
+    for candidate in candidate_paths:
+        if candidate.exists():
+            return candidate
+
+    return candidate_paths[0]
 
 
 def load_poi_rules():
