@@ -117,11 +117,47 @@ export const getProducts = async (startDate, endDate) => {
   return cachedGet('/products', params);
 };
 
-export const getSummary = async (startDate, endDate, productIds = null) => {
-  const params = { startDate, endDate: endDate || startDate };
-  if (productIds && productIds.length > 0) {
-    params.productIds = productIds.join(',');
+export const getPois = async (startDate, endDate) => {
+  const params = {};
+  if (startDate && endDate) {
+    params.startDate = startDate;
+    params.endDate = endDate;
   }
+  return cachedGet('/pois', params);
+};
+
+const normalizeGroupFilters = (filters = null) => {
+  if (Array.isArray(filters)) {
+    return { mode: 'product', values: filters };
+  }
+
+  if (!filters || typeof filters !== 'object') {
+    return { mode: 'product', values: [] };
+  }
+
+  const mode = filters.mode === 'poi' ? 'poi' : 'product';
+  const values = Array.isArray(filters.values) ? filters.values : [];
+  return { mode, values };
+};
+
+const appendGroupFilters = (params, filters = null) => {
+  const normalized = normalizeGroupFilters(filters);
+  if (normalized.values.length === 0) {
+    return normalized;
+  }
+
+  if (normalized.mode === 'poi') {
+    params.poiNames = normalized.values.join(',');
+  } else {
+    params.productIds = normalized.values.join(',');
+  }
+
+  return normalized;
+};
+
+export const getSummary = async (startDate, endDate, filters = null) => {
+  const params = { startDate, endDate: endDate || startDate };
+  appendGroupFilters(params, filters);
   return cachedGet('/summary', params);
 };
 
@@ -133,11 +169,10 @@ export const getDetailedData = async (startDate, endDate, productIds = null) => 
   return cachedGet('/data', params);
 };
 
-export const getCompareAggregate = async (startDate, endDate, productIds = null, metrics = null) => {
+export const getCompareAggregate = async (startDate, endDate, filters = null, metrics = null) => {
   const params = { startDate, endDate };
-  if (productIds && productIds.length > 0) {
-    params.productIds = productIds.join(',');
-  }
+  const normalizedFilters = appendGroupFilters(params, filters);
+  params.groupBy = normalizedFilters.mode;
   if (metrics && metrics.length > 0) {
     params.metrics = metrics.join(',');
   }
@@ -166,19 +201,15 @@ const normalizeCompareTrendResponse = (payload) => {
   return { dates, rows };
 };
 
-export const getCompareTrend = async (startDate, endDate, metric, productIds = null, axisProductIds = null) => {
+export const getCompareTrend = async (startDate, endDate, metric, filters = null) => {
   const params = {
     startDate,
     endDate,
     metric,
     includeDates: true,
   };
-  if (productIds && productIds.length > 0) {
-    params.productIds = productIds.join(',');
-  }
-  if (axisProductIds && axisProductIds.length > 0) {
-    params.axisProductIds = axisProductIds.join(',');
-  }
+  const normalizedFilters = appendGroupFilters(params, filters);
+  params.groupBy = normalizedFilters.mode;
   const payload = await cachedGet('/compare/trend', params);
   return normalizeCompareTrendResponse(payload);
 };

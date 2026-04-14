@@ -1,5 +1,9 @@
 import hashlib
+import os
+import re
 import time
+from collections import defaultdict
+from pathlib import Path
 
 import pandas as pd
 from fastapi import HTTPException
@@ -57,6 +61,10 @@ DAILY_PRODUCT_SUMMARY_FIELDS = [
     if column.name not in {"date", "product_id", "product_name"}
 ]
 
+DEFAULT_POI_CONFIG_PATH = Path(__file__).resolve().parent.parent / "POI.json"
+POI_RULE_PATTERN = re.compile(r"^\s*(?P<name>[^()\uFF08\uFF09]+?)\s*(?:[\uFF08(](?P<keywords>.+?)[\uFF09)])?\s*$")
+POI_KEYWORD_SPLIT_PATTERN = re.compile(r"[/\uFF0F]")
+
 
 def _run_migrations():
     with engine.connect() as conn:
@@ -96,10 +104,18 @@ def _run_migrations():
         conn.commit()
 
 
-def parse_product_ids(product_ids):
-    if not product_ids:
+def parse_csv_values(raw_value):
+    if not raw_value:
         return []
-    return [item.strip() for item in product_ids.split(",") if item.strip()]
+    return [item.strip() for item in raw_value.split(",") if item.strip()]
+
+
+def parse_product_ids(product_ids):
+    return parse_csv_values(product_ids)
+
+
+def parse_poi_names(poi_names):
+    return parse_csv_values(poi_names)
 
 
 def parse_compare_metrics(metrics):
@@ -131,6 +147,108 @@ def parse_compare_metrics(metrics):
     return parsed_metrics
 
 
+def get_poi_config_path():
+    raw_path = os.environ.get("POI_CONFIG_PATH")
+    if raw_path:
+        return Path(raw_path)
+    return DEFAULT_POI_CONFIG_PATH
+
+
+def load_poi_rules():
+    poi_config_path = get_poi_config_path()
+    if not poi_config_path.exists():
+        return []
+
+    rules = []
+    with poi_config_path.open("r", encoding="utf-8-sig") as poi_file:
+        for raw_line in poi_file:
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            match = POI_RULE_PATTERN.match(line)
+            if not match:
+                continue
+
+            poi_name = (match.group("name") or "").strip()
+            keyword_group = match.group("keywords")
+            if keyword_group:
+                keywords = [
+                    item.strip()
+                    for item in POI_KEYWORD_SPLIT_PATTERN.split(keyword_group)
+                    if item.strip()
+                ]
+            else:
+                keywords = [poi_name]
+
+            if poi_name and keywords:
+                rules.append({
+                    "name": poi_name,
+                    "keywords": keywords,
+                })
+
+    return rules
+
+
+def match_product_to_poi(product_name, poi_rules):
+    normalized_name = normalize_string_cell(product_name)
+    if not normalized_name:
+        return None
+
+    for rule in poi_rules:
+        if any(keyword in normalized_name for keyword in rule["keywords"]):
+            return rule["name"]
+
+    return None
+
+
+def build_product_poi_map(products, poi_rules=None):
+    active_rules = poi_rules if poi_rules is not None else load_poi_rules()
+    product_to_poi = {}
+    poi_to_product_ids = defaultdict(list)
+
+    for product in products:
+        poi_name = match_product_to_poi(product.get("name"), active_rules)
+        if not poi_name:
+            continue
+        product_id = product.get("id")
+        product_to_poi[product_id] = poi_name
+        poi_to_product_ids[poi_name].append(product_id)
+
+    return {
+        "rules": active_rules,
+        "product_to_poi": product_to_poi,
+        "poi_to_product_ids": dict(poi_to_product_ids),
+    }
+
+
+def get_pois(db, start_date=None, end_date=None):
+    products = PRODUCT_INDEX.get_products(db, start_date, end_date) if start_date and end_date else PRODUCT_INDEX.get_products(db)
+    poi_mapping = build_product_poi_map(products)
+    available_pois = set(poi_mapping["poi_to_product_ids"])
+
+    return [
+        {"id": rule["name"], "name": rule["name"]}
+        for rule in poi_mapping["rules"]
+        if rule["name"] in available_pois
+    ]
+
+
+def get_product_ids_for_pois(db, poi_names):
+    if not poi_names:
+        return []
+
+    poi_name_set = set(poi_names)
+    products = PRODUCT_INDEX.get_products(db)
+    poi_mapping = build_product_poi_map(products)
+
+    return [
+        product_id
+        for product_id, poi_name in poi_mapping["product_to_poi"].items()
+        if poi_name in poi_name_set
+    ]
+
+
 def apply_product_filter(query, product_ids, model=models.DailyData):
     if product_ids:
         query = query.filter(model.product_id.in_(product_ids))
@@ -142,6 +260,13 @@ NON_ADDITIVE_AVERAGE_FIELDS = {
     "price_multiplier",
     "silent_pay_conversion",
     "live_consume_rate",
+}
+
+COMPARE_WEIGHT_FIELDS = {
+    "bounce_rate": "visitor_count",
+    "silent_pay_conversion": "visitor_count",
+    "live_consume_rate": "live_pay_users",
+    "price_multiplier": "pay_users",
 }
 
 TREND_AVERAGE_FIELDS = NON_ADDITIVE_AVERAGE_FIELDS.union({
@@ -305,6 +430,282 @@ def build_order_product_id(product_name):
 
 def clear_runtime_caches():
     PRODUCT_INDEX.clear()
+
+
+def _create_compare_bucket(sum_metrics):
+    return {
+        "sum_values": {metric: 0.0 for metric in sum_metrics},
+        "weighted_numerators": {},
+        "weighted_denominators": {},
+    }
+
+
+def _accumulate_compare_bucket(bucket, row, sum_metrics, selected_metrics):
+    for metric in sum_metrics:
+        bucket["sum_values"][metric] += float(getattr(row, metric) or 0)
+
+    for metric in selected_metrics:
+        weight_field = COMPARE_WEIGHT_FIELDS.get(metric)
+        if not weight_field:
+            continue
+
+        weight_value = float(getattr(row, weight_field) or 0)
+        metric_value = float(getattr(row, metric) or 0)
+        bucket["weighted_numerators"][metric] = bucket["weighted_numerators"].get(metric, 0.0) + metric_value * weight_value
+        bucket["weighted_denominators"][metric] = bucket["weighted_denominators"].get(metric, 0.0) + weight_value
+
+
+def _compute_compare_avg_values(bucket, selected_metrics):
+    avg_values = {}
+    for metric in selected_metrics:
+        if metric in NON_ADDITIVE_AVERAGE_FIELDS:
+            denominator = bucket["weighted_denominators"].get(metric, 0.0)
+            avg_values[metric] = (bucket["weighted_numerators"].get(metric, 0.0) / denominator) if denominator else 0.0
+        else:
+            avg_values[metric] = 0.0
+    return avg_values
+
+
+def _build_compare_group_order(group_by, poi_rules, group_name):
+    if group_by == "poi":
+        poi_order = {
+            rule["name"]: index
+            for index, rule in enumerate(poi_rules)
+        }
+        return (poi_order.get(group_name, float("inf")), group_name)
+    return (group_name,)
+
+
+def prepare_compare_dataset(
+    db,
+    start_date,
+    end_date,
+    selected_metrics,
+    group_by="product",
+    product_ids=None,
+    poi_names=None,
+):
+    if group_by not in {"product", "poi"}:
+        raise HTTPException(status_code=400, detail="Invalid compare group type")
+
+    parsed_product_ids = list(product_ids or [])
+    parsed_poi_names = list(poi_names or [])
+    if parsed_product_ids and parsed_poi_names:
+        raise HTTPException(status_code=400, detail="Product and POI filters cannot be combined")
+
+    if group_by == "poi" and parsed_product_ids:
+        raise HTTPException(status_code=400, detail="POI compare mode does not accept product filters")
+    if group_by == "product" and parsed_poi_names:
+        raise HTTPException(status_code=400, detail="Product compare mode does not accept POI filters")
+
+    sum_metrics = list(dict.fromkeys(
+        metric
+        for selected_metric in selected_metrics
+        for metric in [selected_metric, *COMPARE_TOTAL_DEPENDENCIES.get(selected_metric, ())]
+    ))
+    selected_range_day_count = (end_date - start_date).days + 1
+
+    poi_rules = []
+    product_to_poi = {}
+    query_product_ids = None
+    if group_by == "poi":
+        poi_rules = load_poi_rules()
+        all_products = PRODUCT_INDEX.get_products(db)
+        poi_mapping = build_product_poi_map(all_products, poi_rules)
+        product_to_poi = poi_mapping["product_to_poi"]
+
+        if parsed_poi_names:
+            query_product_ids = [
+                product_id
+                for product_id, poi_name in product_to_poi.items()
+                if poi_name in set(parsed_poi_names)
+            ]
+            if not query_product_ids:
+                return {
+                    "groups": {},
+                    "overall_bucket": _create_compare_bucket(sum_metrics),
+                    "selected_range_day_count": selected_range_day_count,
+                    "sorted_dates": [],
+                    "group_by": group_by,
+                    "poi_rules": poi_rules,
+                    "selected_metrics": selected_metrics,
+                }
+    elif parsed_product_ids:
+        query_product_ids = parsed_product_ids
+
+    query = db.query(
+        models.DailyProductSummary,
+        models.Product.name.label("product_name"),
+    ).join(
+        models.Product,
+        models.DailyProductSummary.product_id == models.Product.id,
+    ).filter(
+        models.DailyProductSummary.date >= start_date,
+        models.DailyProductSummary.date <= end_date,
+    )
+
+    if query_product_ids is not None:
+        query = apply_product_filter(query, query_product_ids, models.DailyProductSummary)
+
+    groups = {}
+    overall_bucket = _create_compare_bucket(sum_metrics)
+    distinct_dates = set()
+
+    for daily_row, product_name in query.all():
+        if group_by == "poi":
+            group_name = product_to_poi.get(daily_row.product_id)
+            if not group_name:
+                continue
+            group_key = group_name
+        else:
+            group_key = daily_row.product_id
+            group_name = product_name
+
+        distinct_dates.add(daily_row.date)
+        group_entry = groups.setdefault(group_key, {
+            "group_key": group_key,
+            "group_name": group_name,
+            "days": set(),
+            "bucket": _create_compare_bucket(sum_metrics),
+            "daily": {},
+        })
+        group_entry["days"].add(daily_row.date)
+
+        daily_bucket = group_entry["daily"].setdefault(
+            daily_row.date,
+            _create_compare_bucket(sum_metrics),
+        )
+
+        _accumulate_compare_bucket(group_entry["bucket"], daily_row, sum_metrics, selected_metrics)
+        _accumulate_compare_bucket(daily_bucket, daily_row, sum_metrics, selected_metrics)
+        _accumulate_compare_bucket(overall_bucket, daily_row, sum_metrics, selected_metrics)
+
+    return {
+        "groups": groups,
+        "overall_bucket": overall_bucket,
+        "selected_range_day_count": selected_range_day_count,
+        "sorted_dates": sorted(distinct_dates),
+        "group_by": group_by,
+        "poi_rules": poi_rules,
+        "selected_metrics": selected_metrics,
+    }
+
+
+def build_compare_aggregate_payload(
+    db,
+    start_date,
+    end_date,
+    selected_metrics,
+    group_by="product",
+    product_ids=None,
+    poi_names=None,
+):
+    dataset = prepare_compare_dataset(
+        db=db,
+        start_date=start_date,
+        end_date=end_date,
+        selected_metrics=selected_metrics,
+        group_by=group_by,
+        product_ids=product_ids,
+        poi_names=poi_names,
+    )
+
+    selected_range_day_count = dataset["selected_range_day_count"]
+    overall_avg_values = _compute_compare_avg_values(dataset["overall_bucket"], selected_metrics)
+    overall_totals = {
+        metric: compute_display_metric_value(metric, dataset["overall_bucket"]["sum_values"], overall_avg_values)
+        for metric in selected_metrics
+    }
+
+    rows = []
+    sorted_groups = sorted(
+        dataset["groups"].values(),
+        key=lambda group: _build_compare_group_order(dataset["group_by"], dataset["poi_rules"], group["group_name"]),
+    )
+
+    for group_entry in sorted_groups:
+        row = {
+            "group_key": group_entry["group_key"],
+            "group_name": group_entry["group_name"],
+            "days_count": len(group_entry["days"]),
+        }
+        if dataset["group_by"] == "product":
+            row["product_id"] = group_entry["group_key"]
+            row["product_name"] = group_entry["group_name"]
+        else:
+            row["poi_name"] = group_entry["group_name"]
+
+        group_avg_values = _compute_compare_avg_values(group_entry["bucket"], selected_metrics)
+        daily_metric_sums = {metric: 0.0 for metric in selected_metrics}
+
+        for daily_bucket in group_entry["daily"].values():
+            daily_avg_values = _compute_compare_avg_values(daily_bucket, selected_metrics)
+            for metric in selected_metrics:
+                daily_metric_sums[metric] += compute_display_metric_value(metric, daily_bucket["sum_values"], daily_avg_values)
+
+        for metric in selected_metrics:
+            row[f"{metric}_avg"] = (
+                daily_metric_sums[metric] / selected_range_day_count if selected_range_day_count > 0 else 0.0
+            )
+            row[f"{metric}_total"] = compute_display_metric_value(metric, group_entry["bucket"]["sum_values"], group_avg_values)
+
+        rows.append(row)
+
+    return {
+        "rows": rows,
+        "overall_totals": overall_totals,
+        "selected_range_day_count": selected_range_day_count,
+        "group_by": dataset["group_by"],
+    }
+
+
+def build_compare_trend_payload(
+    db,
+    start_date,
+    end_date,
+    metric,
+    group_by="product",
+    product_ids=None,
+    poi_names=None,
+):
+    dataset = prepare_compare_dataset(
+        db=db,
+        start_date=start_date,
+        end_date=end_date,
+        selected_metrics=[metric],
+        group_by=group_by,
+        product_ids=product_ids,
+        poi_names=poi_names,
+    )
+
+    trend_rows = []
+    sorted_groups = sorted(
+        dataset["groups"].values(),
+        key=lambda group: _build_compare_group_order(dataset["group_by"], dataset["poi_rules"], group["group_name"]),
+    )
+
+    for group_entry in sorted_groups:
+        for target_date in sorted(group_entry["daily"]):
+            daily_bucket = group_entry["daily"][target_date]
+            daily_avg_values = _compute_compare_avg_values(daily_bucket, [metric])
+            row = {
+                "group_key": group_entry["group_key"],
+                "group_name": group_entry["group_name"],
+                "date": target_date.strftime("%Y-%m-%d"),
+                "value": compute_display_metric_value(metric, daily_bucket["sum_values"], daily_avg_values),
+            }
+            if dataset["group_by"] == "product":
+                row["product_id"] = group_entry["group_key"]
+                row["product_name"] = group_entry["group_name"]
+            else:
+                row["poi_name"] = group_entry["group_name"]
+            trend_rows.append(row)
+
+    return {
+        "dates": [target_date.strftime("%Y-%m-%d") for target_date in dataset["sorted_dates"]],
+        "rows": trend_rows,
+        "group_by": dataset["group_by"],
+    }
 
 
 def refresh_daily_product_summary(db, target_date):

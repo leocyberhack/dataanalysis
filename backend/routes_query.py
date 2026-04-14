@@ -9,6 +9,9 @@ from services import (
     PRODUCT_INDEX,
     apply_product_filter,
     compute_total_rate,
+    get_pois,
+    get_product_ids_for_pois,
+    parse_poi_names,
     parse_product_ids,
 )
 
@@ -46,12 +49,25 @@ def get_products(startDate: str = None, endDate: str = None, db: Session = Depen
     return PRODUCT_INDEX.get_products(db)
 
 
+@router.get("/pois")
+def get_poi_options(startDate: str = None, endDate: str = None, db: Session = Depends(get_db)):
+    if startDate and endDate:
+        try:
+            start = datetime.strptime(startDate, "%Y-%m-%d").date()
+            end = datetime.strptime(endDate, "%Y-%m-%d").date()
+            return get_pois(db, start, end)
+        except ValueError:
+            pass
+    return get_pois(db)
+
+
 @router.get("/summary")
 def get_summary(
     date: str = None,
     startDate: str = None,
     endDate: str = None,
     productIds: str = None,
+    poiNames: str = None,
     db: Session = Depends(get_db),
 ):
     if date and not startDate:
@@ -66,6 +82,14 @@ def get_summary(
         raise HTTPException(status_code=400, detail="Invalid date format")
 
     parsed_product_ids = parse_product_ids(productIds)
+    parsed_poi_names = parse_poi_names(poiNames)
+    if parsed_product_ids and parsed_poi_names:
+        raise HTTPException(status_code=400, detail="Product and POI filters cannot be combined")
+
+    if parsed_poi_names:
+        parsed_product_ids = get_product_ids_for_pois(db, parsed_poi_names)
+        if not parsed_product_ids:
+            return {"today": None, "yesterday": None, "has_yesterday": False}
     calc_today = compute_total_rate(db, start_dt, end_dt, parsed_product_ids)
     if not calc_today:
         return {"today": None, "yesterday": None, "has_yesterday": False}

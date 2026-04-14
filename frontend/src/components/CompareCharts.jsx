@@ -14,26 +14,26 @@ function CompareCharts({ aggregatedRows, rawData, trendDates, selectedMetrics, m
       return null;
     }
 
-    const rankedProducts = [...aggregatedRows]
+    const rankedGroups = [...aggregatedRows]
       .sort((left, right) => (right[`${activeMetric}_total`] || 0) - (left[`${activeMetric}_total`] || 0))
       .slice(0, 5);
     const xAxisDates = trendDates?.length
       ? trendDates
       : Array.from(new Set(rawData.map((row) => row.date))).sort();
-    const rankedProductById = new Map(
-      rankedProducts.map((row) => [row.product_id, row]),
+    const rankedGroupById = new Map(
+      rankedGroups.map((row) => [row.group_key, row]),
     );
-    const valueByProductDate = new Map();
+    const valueByGroupDate = new Map();
 
     rawData.forEach((row) => {
-      if (rankedProductById.has(row.product_id)) {
-        valueByProductDate.set(`${row.product_id}::${row.date}`, Number.parseFloat(row.value || 0));
+      if (rankedGroupById.has(row.group_key)) {
+        valueByGroupDate.set(`${row.group_key}::${row.date}`, Number.parseFloat(row.value || 0));
       }
     });
 
     const legend = [];
-    const series = rankedProducts.map((product) => {
-      const shortName = truncateLabel(product.product_name || product.product_id, 8);
+    const series = rankedGroups.map((group) => {
+      const shortName = truncateLabel(group.group_name || group.group_key, 8);
       legend.push(shortName);
 
       return {
@@ -41,7 +41,7 @@ function CompareCharts({ aggregatedRows, rawData, trendDates, selectedMetrics, m
         type: 'line',
         smooth: true,
         symbolSize: 8,
-        data: xAxisDates.map((date) => valueByProductDate.get(`${product.product_id}::${date}`) ?? 0),
+        data: xAxisDates.map((date) => valueByGroupDate.get(`${group.group_key}::${date}`) ?? 0),
         emphasis: { focus: 'series' },
       };
     });
@@ -131,7 +131,7 @@ function CompareCharts({ aggregatedRows, rawData, trendDates, selectedMetrics, m
       },
       yAxis: {
         type: 'category',
-        data: topAverageRows.map((item) => truncateLabel(item.product_name || item.product_id, 6)).reverse(),
+        data: topAverageRows.map((item) => truncateLabel(item.group_name || item.group_key, 6)).reverse(),
         axisLabel: { color: 'var(--text-muted)' },
       },
       series: [
@@ -172,7 +172,7 @@ function CompareCharts({ aggregatedRows, rawData, trendDates, selectedMetrics, m
           label: { show: true, color: 'var(--text-muted)', formatter: '{b}\n{d}%' },
           data: topTotalRows.map((item) => ({
             value: item[`${activeMetric}_total`] || 0,
-            name: truncateLabel(item.product_name || item.product_id, 10),
+            name: truncateLabel(item.group_name || item.group_key, 10),
           })),
         },
       ],

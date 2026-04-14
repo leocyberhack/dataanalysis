@@ -7,6 +7,7 @@ import {
   getCompareTrend,
   getDateStatus,
   getDates,
+  getPois,
   getProducts,
   getSummary,
 } from '../api';
@@ -29,10 +30,10 @@ const VIRTUALIZATION_OVERSCAN = 12;
 const TREND_SERIES_LIMIT = 5;
 
 const getDefaultTableRowHeight = () => (window.innerWidth <= 768 ? 40 : 50);
-const getTopTrendProductIds = (rows, metric, limit = TREND_SERIES_LIMIT) => [...rows]
+const getTopTrendGroupKeys = (rows, metric, limit = TREND_SERIES_LIMIT) => [...rows]
   .sort((left, right) => (right[`${metric}_total`] || 0) - (left[`${metric}_total`] || 0))
   .slice(0, limit)
-  .map((row) => row.product_id);
+  .map((row) => row.group_key);
 
 const ALL_METRICS = {
   visitor_count: '访客数',
@@ -80,7 +81,9 @@ const formatTableNumber = (value) => Number(value || 0).toFixed(2);
 const Compare = () => {
   const [dates, setDates] = useState([]);
   const [products, setProducts] = useState([]);
+  const [pois, setPois] = useState([]);
   const [dateStatus, setDateStatus] = useState({});
+  const [analysisMode, setAnalysisMode] = useState('product');
 
   const [startDate, setStartDate] = useState(null);
   const [endDate, setEndDate] = useState(null);
@@ -88,8 +91,9 @@ const Compare = () => {
   const [pickerEndDate, setPickerEndDate] = useState(null);
 
   const [selectedProducts, setSelectedProducts] = useState([]);
+  const [selectedPois, setSelectedPois] = useState([]);
   const [selectedMetrics, setSelectedMetrics] = useState(DEFAULT_METRICS);
-  const [productSearch, setProductSearch] = useState('');
+  const [entitySearch, setEntitySearch] = useState('');
   const [metricSearch, setMetricSearch] = useState('');
 
   const [rawData, setRawData] = useState([]);
@@ -117,29 +121,31 @@ const Compare = () => {
     [endDate, startDate],
   );
 
-  const productOptions = useMemo(
-    () => products.map((product) => ({ value: product.id, label: product.name })),
-    [products],
-  );
+  const entityOptions = useMemo(() => {
+    const source = analysisMode === 'poi' ? pois : products;
+    return source.map((item) => ({ value: item.id, label: item.name }));
+  }, [analysisMode, pois, products]);
 
   const metricOptions = useMemo(
     () => METRIC_KEYS.map((metric) => ({ value: metric, label: ALL_METRICS[metric] })),
     [],
   );
-  const selectedProductSet = useMemo(() => new Set(selectedProducts), [selectedProducts]);
+  const selectedEntities = analysisMode === 'poi' ? selectedPois : selectedProducts;
+  const setSelectedEntities = analysisMode === 'poi' ? setSelectedPois : setSelectedProducts;
+  const selectedEntitySet = useMemo(() => new Set(selectedEntities), [selectedEntities]);
   const selectedMetricSet = useMemo(() => new Set(selectedMetrics), [selectedMetrics]);
   const renderDateStatusDay = useMemo(
     () => createDateStatusDayRenderer(dateStatus),
     [dateStatus],
   );
 
-  const filteredProductOptions = useMemo(() => {
-    const keyword = normalizeSearchText(productSearch);
+  const filteredEntityOptions = useMemo(() => {
+    const keyword = normalizeSearchText(entitySearch);
     if (!keyword) {
-      return productOptions;
+      return entityOptions;
     }
-    return productOptions.filter((option) => normalizeSearchText(`${option.label}${option.value}`).includes(keyword));
-  }, [productOptions, productSearch]);
+    return entityOptions.filter((option) => normalizeSearchText(`${option.label}${option.value}`).includes(keyword));
+  }, [entityOptions, entitySearch]);
 
   const filteredMetricOptions = useMemo(() => {
     const keyword = normalizeSearchText(metricSearch);
@@ -148,17 +154,17 @@ const Compare = () => {
     }
     return metricOptions.filter((option) => normalizeSearchText(`${option.label}${option.value}`).includes(keyword));
   }, [metricOptions, metricSearch]);
-  const filteredProductValues = useMemo(
-    () => filteredProductOptions.map((option) => option.value),
-    [filteredProductOptions],
+  const filteredEntityValues = useMemo(
+    () => filteredEntityOptions.map((option) => option.value),
+    [filteredEntityOptions],
   );
   const filteredMetricValues = useMemo(
     () => filteredMetricOptions.map((option) => option.value),
     [filteredMetricOptions],
   );
 
-  const allFilteredProductsSelected = filteredProductOptions.length > 0
-    && filteredProductOptions.every((option) => selectedProductSet.has(option.value));
+  const allFilteredEntitiesSelected = filteredEntityOptions.length > 0
+    && filteredEntityOptions.every((option) => selectedEntitySet.has(option.value));
   const allFilteredMetricsSelected = filteredMetricOptions.length > 0
     && filteredMetricOptions.every((option) => selectedMetricSet.has(option.value));
 
@@ -189,11 +195,14 @@ const Compare = () => {
 
     const { startKey: startStr, endKey: endStr } = formatDateRangeKeys(startDate, endDate);
 
-    getProducts(startStr, endStr)
-      .then((nextProducts) => {
+    Promise.all([getProducts(startStr, endStr), getPois(startStr, endStr)])
+      .then(([nextProducts, nextPois]) => {
         const nextProductIds = new Set(nextProducts.map((product) => product.id));
+        const nextPoiIds = new Set(nextPois.map((poi) => poi.id));
         setProducts(nextProducts);
+        setPois(nextPois);
         setSelectedProducts((previousSelection) => previousSelection.filter((id) => nextProductIds.has(id)));
+        setSelectedPois((previousSelection) => previousSelection.filter((id) => nextPoiIds.has(id)));
       })
       .catch(console.error);
   }, [endDate, startDate]);
@@ -206,7 +215,7 @@ const Compare = () => {
     setAggregatedRows([]);
     setOverallTotals({});
     setComparisonSummary(null);
-  }, [endDate, selectedMetrics, selectedProducts, startDate]);
+  }, [analysisMode, endDate, selectedMetrics, selectedPois, selectedProducts, startDate]);
 
   useEffect(() => {
     if (!sortMetric) {
@@ -252,7 +261,7 @@ const Compare = () => {
   const shouldVirtualizeTable = sortedData.length > VIRTUALIZATION_THRESHOLD;
 
   const totalMetricColumnCount = useMemo(
-    () => 2 + selectedMetrics.length * 4,
+    () => 2 + selectedMetrics.length * 2,
     [selectedMetrics],
   );
 
@@ -354,12 +363,16 @@ const Compare = () => {
   };
 
   const handleSearch = async () => {
-    if (!startDate || !endDate || selectedProducts.length === 0 || selectedMetrics.length === 0) {
+    if (!startDate || !endDate || selectedEntities.length === 0 || selectedMetrics.length === 0) {
       return;
     }
 
     const { startKey: startStr, endKey: endStr } = formatDateRangeKeys(startDate, endDate);
     const activeTrendMetric = selectedMetrics.length === 1 ? selectedMetrics[0] : '';
+    const activeFilters = {
+      mode: analysisMode,
+      values: selectedEntities,
+    };
 
     setLoading(true);
     setHasGenerated(true);
@@ -367,23 +380,25 @@ const Compare = () => {
 
     try {
       const [aggregateData, summaryData] = await Promise.all([
-        getCompareAggregate(startStr, endStr, selectedProducts, selectedMetrics),
-        getSummary(startStr, endStr, selectedProducts),
+        getCompareAggregate(startStr, endStr, activeFilters, selectedMetrics),
+        getSummary(startStr, endStr, activeFilters),
       ]);
       const nextAggregatedRows = aggregateData.rows || [];
       let trendData = [];
       let nextTrendDates = [];
 
       if (activeTrendMetric) {
-        const topTrendProductIds = getTopTrendProductIds(nextAggregatedRows, activeTrendMetric);
-        if (topTrendProductIds.length > 0) {
+        const topTrendGroupKeys = getTopTrendGroupKeys(nextAggregatedRows, activeTrendMetric);
+        if (topTrendGroupKeys.length > 0) {
           try {
             const trendResponse = await getCompareTrend(
               startStr,
               endStr,
               activeTrendMetric,
-              topTrendProductIds,
-              selectedProducts,
+              {
+                mode: analysisMode,
+                values: topTrendGroupKeys,
+              },
             );
             trendData = trendResponse.rows || [];
             nextTrendDates = trendResponse.dates || [];
@@ -417,9 +432,11 @@ const Compare = () => {
     setEndDate(latest);
     setPickerStartDate(latest);
     setPickerEndDate(latest);
+    setAnalysisMode('product');
     setSelectedProducts([]);
+    setSelectedPois([]);
     setSelectedMetrics(DEFAULT_METRICS);
-    setProductSearch('');
+    setEntitySearch('');
     setMetricSearch('');
     setSortMetric('');
     setSortOrder('desc');
@@ -432,25 +449,21 @@ const Compare = () => {
 
     const XLSX = await import('xlsx');
     const sheetRows = [];
-    const headerRow = ['商品名称', '有数据天数/区间天数'];
+    const headerRow = [analysisMode === 'poi' ? 'POI' : '商品名称', '有数据天数/区间天数'];
 
     selectedMetrics.forEach((metric) => {
       headerRow.push(
         `${ALL_METRICS[metric]} - 平均值`,
-        `${ALL_METRICS[metric]} - 最大值`,
-        `${ALL_METRICS[metric]} - 最小值`,
         `${ALL_METRICS[metric]} - 总计`,
       );
     });
     sheetRows.push(headerRow);
 
     sortedData.forEach((row) => {
-      const line = [row.product_name, `${row.days_count}/${selectedRangeDayCount}`];
+      const line = [row.group_name, `${row.days_count}/${selectedRangeDayCount}`];
       selectedMetrics.forEach((metric) => {
         line.push(
           row[`${metric}_avg`] || 0,
-          row[`${metric}_max`] || 0,
-          row[`${metric}_min`] || 0,
           row[`${metric}_total`] || 0,
         );
       });
@@ -458,7 +471,7 @@ const Compare = () => {
     });
 
     sheetRows.push([]);
-    sheetRows.push(['筛选商品总体汇总']);
+    sheetRows.push([`筛选${analysisTargetLabel}总体汇总`]);
     sheetRows.push(['维度', '总体值']);
     selectedMetrics.forEach((metric) => {
       sheetRows.push([ALL_METRICS[metric], overallTotals[metric] || 0]);
@@ -468,13 +481,12 @@ const Compare = () => {
     sheetRows.push(['备注']);
     sheetRows.push(['1. 平均值：累计型指标按区间总值除以区间总天数；比率/值型指标按区间内每日指标值做日均处理。']);
     sheetRows.push(['2. 总计：对累计型指标展示区间累计值；对比率/值型指标展示按整体口径重算后的区间值。']);
-    sheetRows.push(['3. 最大值/最小值：所选区间内该商品在已有数据日期中的单日最大值/最小值。']);
 
     const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
     worksheet['!cols'] = [
       { wch: 24 },
       { wch: 18 },
-      ...selectedMetrics.flatMap(() => [{ wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }]),
+      ...selectedMetrics.flatMap(() => [{ wch: 14 }, { wch: 14 }]),
     ];
 
     const workbook = XLSX.utils.book_new();
@@ -540,6 +552,8 @@ const Compare = () => {
     return startStr === endStr ? '当日' : '该周期';
   };
 
+  const analysisTargetLabel = analysisMode === 'poi' ? 'POI' : '商品';
+
   return (
     <div>
       <div className="page-header">
@@ -576,31 +590,50 @@ const Compare = () => {
               {startDate ? formatDateKey(startDate) : '--'} 至 {endDate ? formatDateKey(endDate) : '--'}
             </div>
             <div style={{ marginTop: '8px', fontSize: '12px', color: 'var(--text-muted)' }}>
-              日期一变就会自动刷新商品范围，不需要再点确认。
+              日期一变就会自动刷新可选范围，不需要再点确认。
             </div>
+          </div>
+          <div className="glass-panel" style={{ padding: '14px 18px', minWidth: '260px' }}>
+            <div style={{ fontSize: '13px', color: 'var(--text-muted)', marginBottom: '4px' }}>聚合模式</div>
+            <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', cursor: 'pointer' }}>
+              <div>
+                <div style={{ fontSize: '16px', fontWeight: 600 }}>{analysisMode === 'poi' ? '按 POI 聚合' : '按商品聚合'}</div>
+                <div style={{ marginTop: '6px', fontSize: '12px', color: 'var(--text-muted)' }}>
+                  关闭是商品模式，开启后改为 POI 模式。
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={analysisMode === 'poi'}
+                onChange={(event) => setAnalysisMode(event.target.checked ? 'poi' : 'product')}
+                style={{ width: '18px', height: '18px', accentColor: 'var(--accent)' }}
+              />
+            </label>
           </div>
         </div>
 
         <div className="compare-filter-grid">
           <CompareSelectorCard
-            title="过滤商品"
-            tip="商品列表会跟随日期动态刷新，勾选后只分析这些商品。"
-            searchValue={productSearch}
-            onSearchChange={setProductSearch}
-            searchPlaceholder="搜索商品名称或商品 ID"
-            selectedCount={selectedProducts.length}
-            totalCount={products.length}
-            filteredCount={filteredProductOptions.length}
-            allSelected={allFilteredProductsSelected}
-            filteredValues={filteredProductValues}
-            options={filteredProductOptions}
-            selectedValueSet={selectedProductSet}
-            setSelectedValues={setSelectedProducts}
-            toggleAllText={allFilteredProductsSelected ? '取消全选当前结果' : '全选当前结果'}
+            title={analysisMode === 'poi' ? '过滤 POI' : '过滤商品'}
+            tip={analysisMode === 'poi'
+              ? 'POI 列表会跟随日期动态刷新，勾选后会按 POI 聚合分析。'
+              : '商品列表会跟随日期动态刷新，勾选后只分析这些商品。'}
+            searchValue={entitySearch}
+            onSearchChange={setEntitySearch}
+            searchPlaceholder={analysisMode === 'poi' ? '搜索 POI 名称' : '搜索商品名称或商品 ID'}
+            selectedCount={selectedEntities.length}
+            totalCount={entityOptions.length}
+            filteredCount={filteredEntityOptions.length}
+            allSelected={allFilteredEntitiesSelected}
+            filteredValues={filteredEntityValues}
+            options={filteredEntityOptions}
+            selectedValueSet={selectedEntitySet}
+            setSelectedValues={setSelectedEntities}
+            toggleAllText={allFilteredEntitiesSelected ? '取消全选当前结果' : '全选当前结果'}
             clearText="清空"
-            masterCheckText={`全选符合搜索条件的选项（${filteredProductOptions.length}）`}
-            clearDisabled={selectedProducts.length === 0}
-            emptyText="当前没有匹配的商品。"
+            masterCheckText={`全选符合搜索条件的选项（${filteredEntityOptions.length}）`}
+            clearDisabled={selectedEntities.length === 0}
+            emptyText={analysisMode === 'poi' ? '当前没有匹配的 POI。' : '当前没有匹配的商品。'}
           />
 
           <CompareSelectorCard
@@ -625,7 +658,7 @@ const Compare = () => {
           />
         </div>
         <div className="mobile-file-row" style={{ display: 'flex', gap: '16px', marginTop: '24px' }}>
-          <button className="btn" style={{ flex: 1, justifyContent: 'center' }} onClick={handleSearch} disabled={loading || !startDate || !endDate || selectedProducts.length === 0 || selectedMetrics.length === 0}>
+          <button className="btn" style={{ flex: 1, justifyContent: 'center' }} onClick={handleSearch} disabled={loading || !startDate || !endDate || selectedEntities.length === 0 || selectedMetrics.length === 0}>
             {loading ? '正在生成分析视图...' : '生成分析视图'}
           </button>
           <button className="btn" style={{ background: 'transparent', color: 'var(--text-muted)', border: '1px solid var(--text-muted)', flex: '0 0 auto' }} onClick={handleReset}>
@@ -633,8 +666,8 @@ const Compare = () => {
           </button>
         </div>
 
-        {(selectedProducts.length === 0 || selectedMetrics.length === 0) && (
-          <div className="compare-helper-banner">至少选择 1 个商品和 1 个维度后，才能生成分析视图。</div>
+        {(selectedEntities.length === 0 || selectedMetrics.length === 0) && (
+          <div className="compare-helper-banner">至少选择 1 个{analysisTargetLabel}和 1 个维度后，才能生成分析视图。</div>
         )}
       </div>
 
@@ -665,7 +698,7 @@ const Compare = () => {
                 <div>
                   <h3 style={{ margin: 0, marginBottom: '6px' }}>多维聚合数据表</h3>
                   <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                    已按后端聚合口径生成 {aggregatedRows.length} 个商品结果，平均值按整个所选区间天数计算。
+                    已按后端聚合口径生成 {aggregatedRows.length} 个{analysisTargetLabel}结果，平均值按整个所选区间天数计算。
                   </p>
                 </div>
                 <button className="btn" style={{ padding: '6px 14px', fontSize: '13px', background: 'var(--success)', whiteSpace: 'nowrap' }} onClick={handleExportExcel}>
@@ -681,10 +714,10 @@ const Compare = () => {
                 <table className="data-table">
                   <thead ref={tableHeadRef}>
                     <tr>
-                      <th>商品名称</th>
+                      <th>{analysisTargetLabel}</th>
                       <th>有数据天数/区间天数</th>
                       {selectedMetrics.map((metric) => (
-                        <th key={metric} colSpan="4" style={{ textAlign: 'center' }}>
+                        <th key={metric} colSpan="2" style={{ textAlign: 'center' }}>
                           {ALL_METRICS[metric]}
                         </th>
                       ))}
@@ -695,8 +728,6 @@ const Compare = () => {
                       {selectedMetrics.map((metric) => (
                         <Fragment key={metric}>
                           {renderSortHeader('平均值', `${metric}_avg`)}
-                          {renderSortHeader('最大值', `${metric}_max`)}
-                          {renderSortHeader('最小值', `${metric}_min`)}
                           {renderSortHeader('总计', `${metric}_total`)}
                         </Fragment>
                       ))}
@@ -710,19 +741,17 @@ const Compare = () => {
                     )}
                     {visibleRows.map((row, rowIndex) => (
                       <tr
-                        key={row.product_id}
+                        key={row.group_key}
                         ref={rowIndex === 0 ? measuredRowRef : null}
                         style={shouldVirtualizeTable ? { height: `${virtualRowHeight}px` } : undefined}
                       >
-                        <td title={row.product_name} style={{ maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {row.product_name}
+                        <td title={row.group_name} style={{ maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {row.group_name}
                         </td>
                         <td>{row.days_count}/{selectedRangeDayCount}</td>
                         {selectedMetrics.map((metric) => (
-                          <Fragment key={`${row.product_id}_${metric}`}>
+                          <Fragment key={`${row.group_key}_${metric}`}>
                             <td style={{ color: 'var(--accent)' }}>{formatTableNumber(row[`${metric}_avg`])}</td>
-                            <td style={{ color: 'var(--success)' }}>{formatTableNumber(row[`${metric}_max`])}</td>
-                            <td style={{ color: 'var(--danger)' }}>{formatTableNumber(row[`${metric}_min`])}</td>
                             <td style={{ fontWeight: 600 }}>{formatTableNumber(row[`${metric}_total`])}</td>
                           </Fragment>
                         ))}
@@ -738,7 +767,7 @@ const Compare = () => {
               </div>
 
               <div className="compare-total-table">
-                <div className="compare-total-table-title">筛选商品总体汇总</div>
+                <div className="compare-total-table-title">筛选{analysisTargetLabel}总体汇总</div>
                 <table className="data-table compare-summary-table">
                   <thead>
                     <tr>
@@ -761,7 +790,6 @@ const Compare = () => {
                 <div className="compare-table-note-title">口径说明</div>
                 <div className="compare-table-note-item">平均值：累计型指标按区间总值除以区间总天数；比率/值型指标按区间内每日指标值做日均处理。</div>
                 <div className="compare-table-note-item">总计：对累计型指标展示区间累计值；对比率/值型指标展示按整体口径重算后的区间值。</div>
-                <div className="compare-table-note-item">最大值/最小值：所选区间内该商品在已有数据日期中的单日最大值/最小值。</div>
               </div>
             </div>
 
@@ -769,9 +797,9 @@ const Compare = () => {
               <div className="mb-32">
                 <div className="page-header" style={{ marginBottom: '20px' }}>
                   <div>
-                    <h2 className="page-title" style={{ fontSize: '24px' }}>筛选商品核心指标</h2>
+                    <h2 className="page-title" style={{ fontSize: '24px' }}>筛选{analysisTargetLabel}核心指标</h2>
                     <p style={{ marginTop: '6px', color: 'var(--text-muted)', fontSize: '13px' }}>
-                      这里的核心指标只受筛选商品和日期范围影响，不受上方维度勾选影响。
+                      这里的核心指标只受筛选{analysisTargetLabel}和日期范围影响，不受上方维度勾选影响。
                     </p>
                   </div>
                 </div>
