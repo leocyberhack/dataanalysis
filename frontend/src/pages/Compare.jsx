@@ -30,6 +30,19 @@ const VIRTUALIZATION_OVERSCAN = 12;
 const TREND_SERIES_LIMIT = 5;
 
 const getDefaultTableRowHeight = () => (window.innerWidth <= 768 ? 40 : 50);
+const resolveVirtualScrollContainer = (tableWrapperElement) => {
+  const scrollContainer = tableWrapperElement?.closest('.main-content');
+  if (!scrollContainer) {
+    return null;
+  }
+
+  const overflowY = window.getComputedStyle(scrollContainer).overflowY;
+  const containerUsesOwnScroll = !['visible', 'clip'].includes(overflowY)
+    && scrollContainer.scrollHeight > scrollContainer.clientHeight;
+
+  return containerUsesOwnScroll ? scrollContainer : null;
+};
+
 const getTopTrendGroupKeys = (rows, metric, limit = TREND_SERIES_LIMIT) => [...rows]
   .sort((left, right) => (right[`${metric}_total`] || 0) - (left[`${metric}_total`] || 0))
   .slice(0, limit)
@@ -302,12 +315,26 @@ const Compare = () => {
         return;
       }
 
+      const scrollContainer = resolveVirtualScrollContainer(tableWrapperRef.current);
       const wrapperRect = tableWrapperRef.current.getBoundingClientRect();
-      const wrapperTop = wrapperRect.top + window.scrollY;
       const headHeight = tableHeadRef.current?.getBoundingClientRect().height || 0;
-      const bodyTop = wrapperTop + headHeight;
-      const viewportTop = window.scrollY;
-      const viewportBottom = viewportTop + window.innerHeight;
+      let bodyTop = 0;
+      let viewportTop = 0;
+      let viewportBottom = 0;
+
+      if (scrollContainer) {
+        const containerRect = scrollContainer.getBoundingClientRect();
+        const wrapperTop = wrapperRect.top - containerRect.top + scrollContainer.scrollTop;
+        bodyTop = wrapperTop + headHeight;
+        viewportTop = scrollContainer.scrollTop;
+        viewportBottom = viewportTop + scrollContainer.clientHeight;
+      } else {
+        const wrapperTop = wrapperRect.top + window.scrollY;
+        bodyTop = wrapperTop + headHeight;
+        viewportTop = window.scrollY;
+        viewportBottom = viewportTop + window.innerHeight;
+      }
+
       const relativeViewportTop = Math.max(0, viewportTop - bodyTop);
       const relativeViewportBottom = Math.max(0, viewportBottom - bodyTop);
       const nextStart = Math.min(
@@ -329,12 +356,15 @@ const Compare = () => {
       ));
     };
 
+    const scrollContainer = resolveVirtualScrollContainer(tableWrapperRef.current);
+    const scrollTarget = scrollContainer || window;
+
     updateVisibleRange();
-    window.addEventListener('scroll', updateVisibleRange, { passive: true });
+    scrollTarget.addEventListener('scroll', updateVisibleRange, { passive: true });
     window.addEventListener('resize', updateVisibleRange);
 
     return () => {
-      window.removeEventListener('scroll', updateVisibleRange);
+      scrollTarget.removeEventListener('scroll', updateVisibleRange);
       window.removeEventListener('resize', updateVisibleRange);
     };
   }, [shouldVirtualizeTable, sortedData.length, virtualRowHeight]);

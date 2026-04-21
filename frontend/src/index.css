@@ -123,6 +123,27 @@ body {
   height: 100vh;
   width: 0;
   /* Important for flex child to not expand beyond flex container */
+  scrollbar-width: auto;
+  scrollbar-color: var(--danger) rgba(217, 4, 41, 0.12);
+}
+
+.main-content::-webkit-scrollbar {
+  width: 14px;
+}
+
+.main-content::-webkit-scrollbar-track {
+  background: rgba(217, 4, 41, 0.12);
+  border-radius: 999px;
+}
+
+.main-content::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #ef476f 0%, var(--danger) 100%);
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.65);
+}
+
+.main-content::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #f94144 0%, #b10321 100%);
 }
 
 .page-header {
