@@ -49,10 +49,22 @@ COL_MAP = {
     "店播退款率": "live_refund_rate",
 }
 
-COMPARE_METRIC_FIELDS = [
+BASE_COMPARE_METRIC_FIELDS = [
     column.name
     for column in models.DailyData.__table__.columns
     if column.name not in {"id", "product_id", "date"}
+]
+
+COMPARE_SHARE_METRICS = {
+    "profit_share": "profit",
+    "refund_share": "refund_amount",
+    "pay_share": "pay_amount",
+    "redeem_share": "redeem_amount",
+}
+
+COMPARE_METRIC_FIELDS = [
+    *BASE_COMPARE_METRIC_FIELDS,
+    *COMPARE_SHARE_METRICS.keys(),
 ]
 
 DAILY_PRODUCT_SUMMARY_FIELDS = [
@@ -189,14 +201,14 @@ def load_poi_rules():
 
             poi_name = (match.group("name") or "").strip()
             keyword_group = match.group("keywords")
+            keywords = [poi_name] if poi_name else []
             if keyword_group:
-                keywords = [
+                keywords.extend(
                     item.strip()
                     for item in POI_KEYWORD_SPLIT_PATTERN.split(keyword_group)
                     if item.strip()
-                ]
-            else:
-                keywords = [poi_name]
+                )
+            keywords = list(dict.fromkeys(keywords))
 
             if poi_name and keywords:
                 rules.append({
@@ -310,6 +322,11 @@ COMPARE_TOTAL_DEPENDENCIES = {
     "live_refund_rate": {"live_refund_amount", "live_consume_amount"},
 }
 
+
+def get_compare_metric_sum_fields(metric):
+    source_metric = COMPARE_SHARE_METRICS.get(metric, metric)
+    return [source_metric, *COMPARE_TOTAL_DEPENDENCIES.get(metric, ())]
+
 TOTAL_RATE_FIELDS = (
     "pay_amount",
     "pay_orders",
@@ -395,7 +412,14 @@ def safe_divide(numerator, denominator, multiplier=1):
     return float(numerator or 0) / float(denominator) * multiplier
 
 
-def compute_display_metric_value(metric, sum_values, avg_values):
+def compute_display_metric_value(metric, sum_values, avg_values, denominator_values=None):
+    share_source_metric = COMPARE_SHARE_METRICS.get(metric)
+    if share_source_metric:
+        return safe_divide(
+            sum_values.get(share_source_metric),
+            (denominator_values or {}).get(share_source_metric),
+            100,
+        )
     if metric == "avg_visitor_value":
         return safe_divide(sum_values.get("pay_amount"), sum_values.get("visitor_count"))
     if metric == "order_conversion":
@@ -518,9 +542,10 @@ def prepare_compare_dataset(
     sum_metrics = list(dict.fromkeys(
         metric
         for selected_metric in selected_metrics
-        for metric in [selected_metric, *COMPARE_TOTAL_DEPENDENCIES.get(selected_metric, ())]
+        for metric in get_compare_metric_sum_fields(selected_metric)
     ))
     selected_range_day_count = (end_date - start_date).days + 1
+    needs_share_metrics = any(metric in COMPARE_SHARE_METRICS for metric in selected_metrics)
 
     poi_rules = []
     product_to_poi = {}
@@ -541,6 +566,8 @@ def prepare_compare_dataset(
                 return {
                     "groups": {},
                     "overall_bucket": _create_compare_bucket(sum_metrics),
+                    "global_bucket": _create_compare_bucket(sum_metrics),
+                    "global_daily_buckets": {},
                     "selected_range_day_count": selected_range_day_count,
                     "sorted_dates": [],
                     "group_by": group_by,
@@ -566,7 +593,40 @@ def prepare_compare_dataset(
 
     groups = {}
     overall_bucket = _create_compare_bucket(sum_metrics)
+    global_bucket = _create_compare_bucket(sum_metrics)
+    global_daily_buckets = {}
     distinct_dates = set()
+
+    if needs_share_metrics:
+        global_query = db.query(
+            models.DailyProductSummary,
+            models.Product.name.label("product_name"),
+        ).join(
+            models.Product,
+            models.DailyProductSummary.product_id == models.Product.id,
+        ).filter(
+            models.DailyProductSummary.date >= start_date,
+            models.DailyProductSummary.date <= end_date,
+        )
+
+        if group_by == "poi":
+            mapped_product_ids = list(product_to_poi)
+            if mapped_product_ids:
+                global_query = apply_product_filter(global_query, mapped_product_ids, models.DailyProductSummary)
+            else:
+                global_query = None
+
+        if global_query is not None:
+            for daily_row, _ in global_query.all():
+                if group_by == "poi" and daily_row.product_id not in product_to_poi:
+                    continue
+
+                daily_global_bucket = global_daily_buckets.setdefault(
+                    daily_row.date,
+                    _create_compare_bucket(sum_metrics),
+                )
+                _accumulate_compare_bucket(global_bucket, daily_row, sum_metrics, selected_metrics)
+                _accumulate_compare_bucket(daily_global_bucket, daily_row, sum_metrics, selected_metrics)
 
     for daily_row, product_name in query.all():
         if group_by == "poi":
@@ -600,6 +660,8 @@ def prepare_compare_dataset(
     return {
         "groups": groups,
         "overall_bucket": overall_bucket,
+        "global_bucket": global_bucket,
+        "global_daily_buckets": global_daily_buckets,
         "selected_range_day_count": selected_range_day_count,
         "sorted_dates": sorted(distinct_dates),
         "group_by": group_by,
@@ -630,7 +692,12 @@ def build_compare_aggregate_payload(
     selected_range_day_count = dataset["selected_range_day_count"]
     overall_avg_values = _compute_compare_avg_values(dataset["overall_bucket"], selected_metrics)
     overall_totals = {
-        metric: compute_display_metric_value(metric, dataset["overall_bucket"]["sum_values"], overall_avg_values)
+        metric: compute_display_metric_value(
+            metric,
+            dataset["overall_bucket"]["sum_values"],
+            overall_avg_values,
+            dataset["global_bucket"]["sum_values"],
+        )
         for metric in selected_metrics
     }
 
@@ -655,16 +722,28 @@ def build_compare_aggregate_payload(
         group_avg_values = _compute_compare_avg_values(group_entry["bucket"], selected_metrics)
         daily_metric_sums = {metric: 0.0 for metric in selected_metrics}
 
-        for daily_bucket in group_entry["daily"].values():
+        for target_date, daily_bucket in group_entry["daily"].items():
             daily_avg_values = _compute_compare_avg_values(daily_bucket, selected_metrics)
+            daily_global_bucket = dataset["global_daily_buckets"].get(target_date)
+            daily_denominator_values = daily_global_bucket["sum_values"] if daily_global_bucket else {}
             for metric in selected_metrics:
-                daily_metric_sums[metric] += compute_display_metric_value(metric, daily_bucket["sum_values"], daily_avg_values)
+                daily_metric_sums[metric] += compute_display_metric_value(
+                    metric,
+                    daily_bucket["sum_values"],
+                    daily_avg_values,
+                    daily_denominator_values,
+                )
 
         for metric in selected_metrics:
             row[f"{metric}_avg"] = (
                 daily_metric_sums[metric] / selected_range_day_count if selected_range_day_count > 0 else 0.0
             )
-            row[f"{metric}_total"] = compute_display_metric_value(metric, group_entry["bucket"]["sum_values"], group_avg_values)
+            row[f"{metric}_total"] = compute_display_metric_value(
+                metric,
+                group_entry["bucket"]["sum_values"],
+                group_avg_values,
+                dataset["global_bucket"]["sum_values"],
+            )
 
         rows.append(row)
 
@@ -705,11 +784,18 @@ def build_compare_trend_payload(
         for target_date in sorted(group_entry["daily"]):
             daily_bucket = group_entry["daily"][target_date]
             daily_avg_values = _compute_compare_avg_values(daily_bucket, [metric])
+            daily_global_bucket = dataset["global_daily_buckets"].get(target_date)
+            daily_denominator_values = daily_global_bucket["sum_values"] if daily_global_bucket else {}
             row = {
                 "group_key": group_entry["group_key"],
                 "group_name": group_entry["group_name"],
                 "date": target_date.strftime("%Y-%m-%d"),
-                "value": compute_display_metric_value(metric, daily_bucket["sum_values"], daily_avg_values),
+                "value": compute_display_metric_value(
+                    metric,
+                    daily_bucket["sum_values"],
+                    daily_avg_values,
+                    daily_denominator_values,
+                ),
             }
             if dataset["group_by"] == "product":
                 row["product_id"] = group_entry["group_key"]
@@ -826,6 +912,100 @@ def ensure_daily_product_summaries():
         db.commit()
     finally:
         db.close()
+
+
+def _rank_items(items, limit):
+    return [
+        {
+            "rank": index + 1,
+            "id": item["id"],
+            "name": item["name"],
+            "value": float(item["value"] or 0),
+        }
+        for index, item in enumerate(items[:limit])
+    ]
+
+
+def build_product_metric_ranking(db, start_date, end_date, metric, limit=5):
+    metric_column = getattr(models.DailyProductSummary, metric)
+    metric_sum = func.sum(metric_column)
+    rows = db.query(
+        models.DailyProductSummary.product_id,
+        models.Product.name.label("product_name"),
+        metric_sum.label("value"),
+    ).join(
+        models.Product,
+        models.DailyProductSummary.product_id == models.Product.id,
+    ).filter(
+        models.DailyProductSummary.date >= start_date,
+        models.DailyProductSummary.date <= end_date,
+    ).group_by(
+        models.DailyProductSummary.product_id,
+        models.Product.name,
+    ).having(
+        metric_sum > 0
+    ).order_by(
+        metric_sum.desc()
+    ).limit(limit).all()
+
+    return _rank_items([
+        {
+            "id": product_id,
+            "name": product_name,
+            "value": value,
+        }
+        for product_id, product_name, value in rows
+    ], limit)
+
+
+def build_poi_metric_ranking(db, start_date, end_date, metric, limit=5):
+    metric_column = getattr(models.DailyProductSummary, metric)
+    metric_sum = func.sum(metric_column)
+    rows = db.query(
+        models.DailyProductSummary.product_id,
+        models.Product.name.label("product_name"),
+        metric_sum.label("value"),
+    ).join(
+        models.Product,
+        models.DailyProductSummary.product_id == models.Product.id,
+    ).filter(
+        models.DailyProductSummary.date >= start_date,
+        models.DailyProductSummary.date <= end_date,
+    ).group_by(
+        models.DailyProductSummary.product_id,
+        models.Product.name,
+    ).having(
+        metric_sum > 0
+    ).all()
+
+    poi_rules = load_poi_rules()
+    poi_totals = defaultdict(float)
+    for _, product_name, value in rows:
+        poi_name = match_product_to_poi(product_name, poi_rules)
+        if poi_name:
+            poi_totals[poi_name] += float(value or 0)
+
+    ranked_pois = sorted(
+        [
+            {
+                "id": poi_name,
+                "name": poi_name,
+                "value": value,
+            }
+            for poi_name, value in poi_totals.items()
+        ],
+        key=lambda item: item["value"],
+        reverse=True,
+    )
+    return _rank_items(ranked_pois, limit)
+
+
+def build_summary_rankings(db, start_date, end_date, limit=5):
+    return {
+        "pay_amount_products": build_product_metric_ranking(db, start_date, end_date, "pay_amount", limit),
+        "pay_amount_pois": build_poi_metric_ranking(db, start_date, end_date, "pay_amount", limit),
+        "refund_amount_products": build_product_metric_ranking(db, start_date, end_date, "refund_amount", limit),
+    }
 
 
 def compute_total_rate(db, start_date, end_date, product_ids=None):

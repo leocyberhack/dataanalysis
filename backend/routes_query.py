@@ -8,6 +8,7 @@ from deps import get_db
 from services import (
     PRODUCT_INDEX,
     apply_product_filter,
+    build_summary_rankings,
     compute_total_rate,
     get_pois,
     get_product_ids_for_pois,
@@ -116,6 +117,21 @@ def get_summary(
         "changes": changes,
         "has_yesterday": bool(calc_yesterday),
     }
+
+
+@router.get("/summary/rankings")
+def get_summary_rankings(
+    startDate: str,
+    endDate: str = None,
+    db: Session = Depends(get_db),
+):
+    try:
+        start_dt = datetime.strptime(startDate, "%Y-%m-%d").date()
+        end_dt = datetime.strptime(endDate or startDate, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid date format")
+
+    return build_summary_rankings(db, start_dt, end_dt)
 
 
 @router.get("/data")

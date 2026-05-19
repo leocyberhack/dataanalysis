@@ -52,10 +52,14 @@ const ALL_METRICS = {
   visitor_count: '访客数',
   bounce_rate: '商品详情页跳出率',
   pay_amount: '支付金额',
+  pay_share: '支付占比',
   profit: '商品利润',
+  profit_share: '利润占比',
   pay_conversion: '支付转化率',
   refund_rate_amount: '成功退款率(金额)',
+  refund_share: '退款占比',
   redeem_rate_amount: '核销率(金额)',
+  redeem_share: '核销占比',
   live_pay_amount: '店播支付金额',
   price_multiplier: '价格倍数',
   page_views: '浏览量',
@@ -87,9 +91,29 @@ const ALL_METRICS = {
 
 const DEFAULT_METRICS = [];
 const METRIC_KEYS = Object.keys(ALL_METRICS);
+const PERCENT_METRICS = new Set([
+  'bounce_rate',
+  'pay_conversion',
+  'refund_rate_amount',
+  'refund_rate_item',
+  'redeem_rate_amount',
+  'redeem_rate_item',
+  'order_conversion',
+  'order_user_pay_rate',
+  'silent_pay_conversion',
+  'live_consume_rate',
+  'live_refund_rate',
+  'profit_share',
+  'refund_share',
+  'pay_share',
+  'redeem_share',
+]);
 
 const normalizeSearchText = (value) => value.toLowerCase().replace(/\s+/g, '');
 const formatTableNumber = (value) => Number(value || 0).toFixed(2);
+const formatMetricValue = (metric, value) => (
+  PERCENT_METRICS.has(metric) ? `${formatTableNumber(value)}%` : formatTableNumber(value)
+);
 
 const Compare = () => {
   const [dates, setDates] = useState([]);
@@ -781,8 +805,8 @@ const Compare = () => {
                         <td>{row.days_count}/{selectedRangeDayCount}</td>
                         {selectedMetrics.map((metric) => (
                           <Fragment key={`${row.group_key}_${metric}`}>
-                            <td style={{ color: 'var(--accent)' }}>{formatTableNumber(row[`${metric}_avg`])}</td>
-                            <td style={{ fontWeight: 600 }}>{formatTableNumber(row[`${metric}_total`])}</td>
+                            <td style={{ color: 'var(--accent)' }}>{formatMetricValue(metric, row[`${metric}_avg`])}</td>
+                            <td style={{ fontWeight: 600 }}>{formatMetricValue(metric, row[`${metric}_total`])}</td>
                           </Fragment>
                         ))}
                       </tr>
@@ -809,7 +833,7 @@ const Compare = () => {
                     {selectedMetrics.map((metric) => (
                       <tr key={`total_${metric}`}>
                         <td>{ALL_METRICS[metric]}</td>
-                        <td>{formatTableNumber(overallTotals[metric])}</td>
+                        <td>{formatMetricValue(metric, overallTotals[metric])}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -820,6 +844,7 @@ const Compare = () => {
                 <div className="compare-table-note-title">口径说明</div>
                 <div className="compare-table-note-item">平均值：累计型指标按区间总值除以区间总天数；比率/值型指标按区间内每日指标值做日均处理。</div>
                 <div className="compare-table-note-item">总计：对累计型指标展示区间累计值；对比率/值型指标展示按整体口径重算后的区间值。</div>
+                <div className="compare-table-note-item">占比：总计为该行区间金额占全量金额的比例，平均值为每日占比的区间日均。</div>
               </div>
             </div>
 

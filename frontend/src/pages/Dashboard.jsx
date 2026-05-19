@@ -3,8 +3,9 @@ import { AlertCircle } from 'lucide-react';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import { zhCN } from 'date-fns/locale';
 import 'react-datepicker/dist/react-datepicker.css';
-import { getDateStatus, getDates, getSummary } from '../api';
+import { getDateStatus, getDates, getSummary, getSummaryRankings } from '../api';
 import SummaryMetricsGrid from '../components/SummaryMetricsGrid';
+import SummaryRankings from '../components/SummaryRankings';
 import { formatDateRangeKeys, parseStoredDate } from '../utils/date';
 import { createDateStatusDayRenderer } from '../utils/dateStatusDayRenderer';
 
@@ -17,6 +18,7 @@ const Dashboard = () => {
   const [startDate, setStartDate] = useState(null);
   const [endDate, setEndDate] = useState(null);
   const [data, setData] = useState(null);
+  const [rankings, setRankings] = useState(null);
   const [loading, setLoading] = useState(false);
   const [dateStatus, setDateStatus] = useState({});
 
@@ -57,11 +59,16 @@ const Dashboard = () => {
     const fetchSummary = async () => {
       setLoading(true);
       try {
-        const summary = await getSummary(startKey, endKey);
+        const [summary, summaryRankings] = await Promise.all([
+          getSummary(startKey, endKey),
+          getSummaryRankings(startKey, endKey),
+        ]);
         setData(summary);
+        setRankings(summaryRankings);
       } catch (error) {
         console.error(error);
         setData(null);
+        setRankings(null);
       } finally {
         setLoading(false);
       }
@@ -138,7 +145,10 @@ const Dashboard = () => {
       {loading ? (
         <div>加载中...</div>
       ) : data?.today ? (
-        <SummaryMetricsGrid summary={data} prefix={getTitlePrefix()} />
+        <>
+          <SummaryMetricsGrid summary={data} prefix={getTitlePrefix()} />
+          <SummaryRankings rankings={rankings} />
+        </>
       ) : (
         <div>获取数据出错，或当前日期范围内暂无可展示数据。</div>
       )}

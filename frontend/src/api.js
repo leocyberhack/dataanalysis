@@ -161,6 +161,11 @@ export const getSummary = async (startDate, endDate, filters = null) => {
   return cachedGet('/summary', params);
 };
 
+export const getSummaryRankings = async (startDate, endDate) => {
+  const params = { startDate, endDate: endDate || startDate };
+  return cachedGet('/summary/rankings', params);
+};
+
 export const getDetailedData = async (startDate, endDate, productIds = null) => {
   const params = { startDate, endDate };
   if (productIds && productIds.length > 0) {
