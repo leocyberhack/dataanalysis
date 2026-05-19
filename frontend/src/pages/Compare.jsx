@@ -114,6 +114,12 @@ const formatTableNumber = (value) => Number(value || 0).toFixed(2);
 const formatMetricValue = (metric, value) => (
   PERCENT_METRICS.has(metric) ? `${formatTableNumber(value)}%` : formatTableNumber(value)
 );
+const estimateNameWidth = (value) => Array.from(String(value || '')).reduce((total, character) => {
+  const charCode = character.charCodeAt(0);
+  const isWideCharacter = charCode > 255;
+  return total + (isWideCharacter ? 14 : 8);
+}, 0);
+const clampColumnWidth = (width) => Math.min(Math.max(width, 220), 820);
 
 const Compare = () => {
   const [dates, setDates] = useState([]);
@@ -294,6 +300,17 @@ const Compare = () => {
     });
     return tableData;
   }, [aggregatedRows, sortMetric, sortOrder]);
+  const nameColumnWidth = useMemo(() => {
+    const longestNameWidth = sortedData.reduce(
+      (maxWidth, row) => Math.max(maxWidth, estimateNameWidth(row.group_name)),
+      estimateNameWidth(analysisMode === 'poi' ? 'POI' : '商品名称'),
+    );
+    return clampColumnWidth(longestNameWidth + 48);
+  }, [analysisMode, sortedData]);
+  const compareTableMinWidth = useMemo(
+    () => Math.max(760, nameColumnWidth + 150 + selectedMetrics.length * 2 * 104),
+    [nameColumnWidth, selectedMetrics.length],
+  );
 
   const shouldVirtualizeTable = sortedData.length > VIRTUALIZATION_THRESHOLD;
 
@@ -765,7 +782,15 @@ const Compare = () => {
               </div>
 
               <div className="data-table-wrapper" ref={tableWrapperRef} onScroll={handleBottomScroll}>
-                <table className="data-table">
+                <table className="data-table compare-data-table" style={{ minWidth: `${compareTableMinWidth}px` }}>
+                  <colgroup>
+                    <col style={{ width: `${nameColumnWidth}px` }} />
+                    <col style={{ width: '150px' }} />
+                    {selectedMetrics.flatMap((metric) => [
+                      <col key={`${metric}-avg-col`} />,
+                      <col key={`${metric}-total-col`} />,
+                    ])}
+                  </colgroup>
                   <thead ref={tableHeadRef}>
                     <tr>
                       <th>{analysisTargetLabel}</th>
@@ -799,7 +824,7 @@ const Compare = () => {
                         ref={rowIndex === 0 ? measuredRowRef : null}
                         style={shouldVirtualizeTable ? { height: `${virtualRowHeight}px` } : undefined}
                       >
-                        <td title={row.group_name} style={{ maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <td className="compare-name-cell" title={row.group_name}>
                           {row.group_name}
                         </td>
                         <td>{row.days_count}/{selectedRangeDayCount}</td>

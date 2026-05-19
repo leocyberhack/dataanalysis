@@ -476,7 +476,7 @@ body {
 .summary-ranking-row {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
   padding: 10px 0;
   border-bottom: 1px solid rgba(224, 122, 95, 0.12);
@@ -488,8 +488,9 @@ body {
 
 .summary-ranking-main {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
+  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -513,11 +514,11 @@ body {
 }
 
 .summary-ranking-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
   font-size: 14px;
   font-weight: 600;
+  line-height: 1.45;
   color: var(--text-main);
 }
 
@@ -526,6 +527,7 @@ body {
   color: #2c241b;
   font-size: 14px;
   font-weight: 700;
+  line-height: 1.45;
   white-space: nowrap;
 }
 
@@ -585,6 +587,16 @@ body {
   width: 100%;
   border-collapse: collapse;
   text-align: left;
+}
+
+.compare-data-table {
+  table-layout: fixed;
+}
+
+.compare-name-cell {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: nowrap;
 }
 
 .data-table th,
