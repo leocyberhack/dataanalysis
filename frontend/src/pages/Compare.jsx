@@ -16,7 +16,6 @@ import SummaryMetricsGrid from '../components/SummaryMetricsGrid';
 import {
   formatDateKey,
   formatDateRangeKeys,
-  getInclusiveDayCount,
   getTodayDate,
   parseStoredDate,
 } from '../utils/date';
@@ -158,11 +157,6 @@ const Compare = () => {
   const [tableScrollWidth, setTableScrollWidth] = useState('100%');
   const [virtualRowHeight, setVirtualRowHeight] = useState(getDefaultTableRowHeight);
   const [visibleRange, setVisibleRange] = useState({ start: 0, end: 0 });
-
-  const selectedRangeDayCount = useMemo(
-    () => getInclusiveDayCount(startDate, endDate),
-    [endDate, startDate],
-  );
 
   const entityOptions = useMemo(() => {
     const source = analysisMode === 'poi' ? pois : products;
@@ -308,14 +302,14 @@ const Compare = () => {
     return clampColumnWidth(longestNameWidth + 48);
   }, [analysisMode, sortedData]);
   const compareTableMinWidth = useMemo(
-    () => Math.max(760, nameColumnWidth + 150 + selectedMetrics.length * 2 * 104),
+    () => Math.max(620, nameColumnWidth + selectedMetrics.length * 120),
     [nameColumnWidth, selectedMetrics.length],
   );
 
   const shouldVirtualizeTable = sortedData.length > VIRTUALIZATION_THRESHOLD;
 
   const totalMetricColumnCount = useMemo(
-    () => 2 + selectedMetrics.length * 2,
+    () => 1 + selectedMetrics.length,
     [selectedMetrics],
   );
 
@@ -520,23 +514,17 @@ const Compare = () => {
 
     const XLSX = await import('xlsx');
     const sheetRows = [];
-    const headerRow = [analysisMode === 'poi' ? 'POI' : '商品名称', '有数据天数/区间天数'];
+    const headerRow = [analysisMode === 'poi' ? 'POI' : '商品名称'];
 
     selectedMetrics.forEach((metric) => {
-      headerRow.push(
-        `${ALL_METRICS[metric]} - 平均值`,
-        `${ALL_METRICS[metric]} - 总计`,
-      );
+      headerRow.push(ALL_METRICS[metric]);
     });
     sheetRows.push(headerRow);
 
     sortedData.forEach((row) => {
-      const line = [row.group_name, `${row.days_count}/${selectedRangeDayCount}`];
+      const line = [row.group_name];
       selectedMetrics.forEach((metric) => {
-        line.push(
-          row[`${metric}_avg`] || 0,
-          row[`${metric}_total`] || 0,
-        );
+        line.push(row[`${metric}_total`] || 0);
       });
       sheetRows.push(line);
     });
@@ -550,14 +538,13 @@ const Compare = () => {
 
     sheetRows.push([]);
     sheetRows.push(['备注']);
-    sheetRows.push(['1. 平均值：累计型指标按区间总值除以区间总天数；比率/值型指标按区间内每日指标值做日均处理。']);
-    sheetRows.push(['2. 总计：对累计型指标展示区间累计值；对比率/值型指标展示按整体口径重算后的区间值。']);
+    sheetRows.push(['1. 表格仅展示总值：累计型指标为区间累计值；比率/值型指标为按整体口径重算后的区间值。']);
+    sheetRows.push(['2. 占比指标为该行区间金额占全量金额的比例。']);
 
     const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
     worksheet['!cols'] = [
       { wch: 24 },
-      { wch: 18 },
-      ...selectedMetrics.flatMap(() => [{ wch: 14 }, { wch: 14 }]),
+      ...selectedMetrics.map(() => ({ wch: 14 })),
     ];
 
     const workbook = XLSX.utils.book_new();
@@ -769,7 +756,7 @@ const Compare = () => {
                 <div>
                   <h3 style={{ margin: 0, marginBottom: '6px' }}>多维聚合数据表</h3>
                   <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                    已按后端聚合口径生成 {aggregatedRows.length} 个{analysisTargetLabel}结果，平均值按整个所选区间天数计算。
+                    已按后端聚合口径生成 {aggregatedRows.length} 个{analysisTargetLabel}结果。
                   </p>
                 </div>
                 <button className="btn" style={{ padding: '6px 14px', fontSize: '13px', background: 'var(--success)', whiteSpace: 'nowrap' }} onClick={handleExportExcel}>
@@ -785,29 +772,16 @@ const Compare = () => {
                 <table className="data-table compare-data-table" style={{ minWidth: `${compareTableMinWidth}px` }}>
                   <colgroup>
                     <col style={{ width: `${nameColumnWidth}px` }} />
-                    <col style={{ width: '150px' }} />
-                    {selectedMetrics.flatMap((metric) => [
-                      <col key={`${metric}-avg-col`} />,
-                      <col key={`${metric}-total-col`} />,
-                    ])}
+                    {selectedMetrics.map((metric) => (
+                      <col key={`${metric}-total-col`} />
+                    ))}
                   </colgroup>
                   <thead ref={tableHeadRef}>
                     <tr>
                       <th>{analysisTargetLabel}</th>
-                      <th>有数据天数/区间天数</th>
-                      {selectedMetrics.map((metric) => (
-                        <th key={metric} colSpan="2" style={{ textAlign: 'center' }}>
-                          {ALL_METRICS[metric]}
-                        </th>
-                      ))}
-                    </tr>
-                    <tr>
-                      <th />
-                      <th />
                       {selectedMetrics.map((metric) => (
                         <Fragment key={metric}>
-                          {renderSortHeader('平均值', `${metric}_avg`)}
-                          {renderSortHeader('总计', `${metric}_total`)}
+                          {renderSortHeader(ALL_METRICS[metric], `${metric}_total`)}
                         </Fragment>
                       ))}
                     </tr>
@@ -827,12 +801,10 @@ const Compare = () => {
                         <td className="compare-name-cell" title={row.group_name}>
                           {row.group_name}
                         </td>
-                        <td>{row.days_count}/{selectedRangeDayCount}</td>
                         {selectedMetrics.map((metric) => (
-                          <Fragment key={`${row.group_key}_${metric}`}>
-                            <td style={{ color: 'var(--accent)' }}>{formatMetricValue(metric, row[`${metric}_avg`])}</td>
-                            <td style={{ fontWeight: 600 }}>{formatMetricValue(metric, row[`${metric}_total`])}</td>
-                          </Fragment>
+                          <td key={`${row.group_key}_${metric}`} style={{ fontWeight: 600 }}>
+                            {formatMetricValue(metric, row[`${metric}_total`])}
+                          </td>
                         ))}
                       </tr>
                     ))}
@@ -867,9 +839,8 @@ const Compare = () => {
 
               <div className="compare-table-note">
                 <div className="compare-table-note-title">口径说明</div>
-                <div className="compare-table-note-item">平均值：累计型指标按区间总值除以区间总天数；比率/值型指标按区间内每日指标值做日均处理。</div>
-                <div className="compare-table-note-item">总计：对累计型指标展示区间累计值；对比率/值型指标展示按整体口径重算后的区间值。</div>
-                <div className="compare-table-note-item">占比：总计为该行区间金额占全量金额的比例，平均值为每日占比的区间日均。</div>
+                <div className="compare-table-note-item">表格仅展示总值：累计型指标为区间累计值；比率/值型指标为按整体口径重算后的区间值。</div>
+                <div className="compare-table-note-item">占比指标为该行区间金额占全量金额的比例。</div>
               </div>
             </div>
 
