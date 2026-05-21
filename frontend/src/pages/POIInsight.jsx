@@ -531,6 +531,7 @@ function POIInsight() {
               placeholderText="请选择开始和结束日期"
               showPopperArrow={false}
               className="input"
+              popperClassName="poi-analysis-datepicker-popper"
               renderDayContents={renderDateStatusDay}
             />
           </div>

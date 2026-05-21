@@ -11,6 +11,10 @@ from routes_compare import (
     get_compare_trend,
     router as compare_router,
 )
+from routes_deep_analysis import (
+    get_deep_analysis,
+    router as deep_analysis_router,
+)
 from routes_query import (
     get_data,
     get_date_status,
@@ -98,6 +102,7 @@ app.include_router(query_router)
 app.include_router(compare_router)
 app.include_router(review_router)
 app.include_router(plans_router)
+app.include_router(deep_analysis_router)
 
 
 __all__ = [
@@ -131,6 +136,7 @@ __all__ = [
     "get_compare_aggregate",
     "get_compare_trend",
     "get_data",
+    "get_deep_analysis",
     "get_date_status",
     "get_dates",
     "get_db",

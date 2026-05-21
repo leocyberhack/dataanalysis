@@ -277,6 +277,15 @@ export const deletePendingOrder = async (orderId) => {
 
 export const getPlans = async () => cachedGet('/plans');
 
+export const getDeepAnalysis = async (poiName = '') => {
+  const params = {};
+  if (poiName) {
+    params.poiNames = poiName;
+  }
+  const res = await api.get('/deep_analysis', { params });
+  return res.data;
+};
+
 export const createPlan = async (payload) => {
   const res = await api.post('/plans', payload);
   invalidateApiCache();

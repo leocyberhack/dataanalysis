@@ -272,6 +272,10 @@ body {
   z-index: 3000 !important;
 }
 
+.poi-analysis-datepicker-popper {
+  margin-left: 48px;
+}
+
 .status-datepicker-wrapper.is-dashboard .react-datepicker-wrapper {
   width: 300px;
 }
@@ -1210,6 +1214,155 @@ body {
   font-weight: 700;
 }
 
+.deep-analysis-hero {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.deep-analysis-hero h2,
+.deep-analysis-scope-copy h3,
+.deep-analysis-chart-card h3,
+.deep-analysis-table-card h3,
+.deep-analysis-note h3,
+.deep-analysis-empty h3 {
+  margin: 0 0 8px;
+  color: #2c241b;
+  font-size: 19px;
+  font-weight: 800;
+}
+
+.deep-analysis-hero p,
+.deep-analysis-scope-copy p,
+.deep-analysis-note p,
+.deep-analysis-empty p,
+.deep-analysis-empty span {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.deep-analysis-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.deep-analysis-scope-copy {
+  flex: 1 1 320px;
+}
+
+.deep-analysis-scope-copy > span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.deep-analysis-scope-select {
+  display: flex;
+  flex: 0 1 280px;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.deep-analysis-scope-select select {
+  min-height: 46px;
+  border: 1px solid rgba(228, 102, 71, 0.28);
+  border-radius: 14px;
+  background: #fffdf9;
+  color: var(--text-main);
+  font-size: 15px;
+  font-weight: 750;
+  padding: 0 14px;
+  outline: none;
+}
+
+.deep-analysis-scope-select select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(228, 102, 71, 0.12);
+}
+
+.deep-analysis-cache-pill {
+  flex: 0 0 auto;
+  border: 1px solid rgba(228, 102, 71, 0.24);
+  border-radius: 999px;
+  background: rgba(228, 102, 71, 0.08);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 850;
+  padding: 9px 13px;
+}
+
+.deep-analysis-cache-pill.is-cached {
+  border-color: rgba(54, 143, 78, 0.24);
+  background: rgba(54, 143, 78, 0.1);
+  color: var(--success);
+}
+
+.deep-analysis-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.deep-analysis-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.deep-analysis-stat span {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.deep-analysis-stat strong {
+  color: #2c241b;
+  font-size: 28px;
+  font-weight: 850;
+}
+
+.deep-analysis-stat p {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.deep-analysis-layout {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.95fr) minmax(460px, 1.05fr);
+  gap: 20px;
+}
+
+.deep-analysis-chart-card,
+.deep-analysis-table-card,
+.deep-analysis-note,
+.deep-analysis-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.deep-direction-up {
+  color: var(--success);
+  font-weight: 800;
+}
+
+.deep-direction-down {
+  color: var(--danger);
+  font-weight: 800;
+}
+
 /* Top Synchronized Scrollbar */
 .top-scrollbar-wrapper {
   overflow-x: auto;
@@ -1860,6 +2013,27 @@ body {
     width: 100%;
     justify-content: center;
   }
+
+  .deep-analysis-summary-grid,
+  .deep-analysis-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .deep-analysis-hero {
+    flex-direction: column;
+  }
+
+  .deep-analysis-toolbar {
+    align-items: stretch;
+  }
+
+  .deep-analysis-scope-select {
+    flex-basis: auto;
+  }
+
+  .deep-analysis-cache-pill {
+    width: fit-content;
+  }
 }
 
 @media (max-width: 640px) {
@@ -1877,6 +2051,10 @@ body {
 
   .status-datepicker-wrapper.is-dashboard .react-datepicker-wrapper {
     width: 100% !important;
+  }
+
+  .poi-analysis-datepicker-popper {
+    margin-left: 0;
   }
 
   .status-datepicker-wrapper .react-datepicker {
