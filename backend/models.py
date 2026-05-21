@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Index, Integer, String
+from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -93,6 +93,7 @@ class Plan(Base):
     name = Column(String, default="")
     metric = Column(String, index=True)
     target_value = Column(Float, default=0)
+    month_targets = Column(Text, default="{}")
     poi_mode = Column(String, default="all")
     poi_names = Column(String, default="")
     months = Column(String, default="")

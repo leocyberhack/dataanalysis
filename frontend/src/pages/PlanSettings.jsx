@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarDays, RefreshCcw, Target, Trash2 } from 'lucide-react';
-import { createPlan, deletePlan, getPlans, getPois } from '../api';
+import { CalendarDays, Pencil, RefreshCcw, Target, Trash2, X } from 'lucide-react';
+import { createPlan, deletePlan, getPlans, getPois, updatePlan } from '../api';
 import { ALL_METRICS, METRIC_KEYS, formatMetricValue } from '../constants/compareMetrics';
 
 const getCurrentMonthKey = () => {
@@ -15,17 +15,22 @@ const formatMonthLabel = (month) => {
   return `${year}年${Number(monthNumber)}月`;
 };
 
+const createInitialMonthTargets = () => ({
+  [getCurrentMonthKey()]: '',
+});
+
 function PlanSettings() {
   const [plans, setPlans] = useState([]);
   const [pois, setPois] = useState([]);
   const [planName, setPlanName] = useState('');
   const [metric, setMetric] = useState(METRIC_KEYS[0]);
-  const [targetValue, setTargetValue] = useState('');
   const [poiMode, setPoiMode] = useState('all');
   const [selectedPois, setSelectedPois] = useState([]);
   const [poiSearch, setPoiSearch] = useState('');
   const [monthInput, setMonthInput] = useState(getCurrentMonthKey());
   const [selectedMonths, setSelectedMonths] = useState([getCurrentMonthKey()]);
+  const [monthTargets, setMonthTargets] = useState(createInitialMonthTargets);
+  const [editingPlanId, setEditingPlanId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -95,34 +100,72 @@ function PlanSettings() {
       return;
     }
     setSelectedMonths((previous) => Array.from(new Set([...previous, monthInput])).sort());
+    setMonthTargets((previous) => ({
+      ...previous,
+      [monthInput]: previous[monthInput] ?? '',
+    }));
   };
 
   const handleRemoveMonth = (month) => {
     setSelectedMonths((previous) => previous.filter((item) => item !== month));
+    setMonthTargets((previous) => {
+      const nextTargets = { ...previous };
+      delete nextTargets[month];
+      return nextTargets;
+    });
+  };
+
+  const handleMonthTargetChange = (month, value) => {
+    setMonthTargets((previous) => ({
+      ...previous,
+      [month]: value,
+    }));
   };
 
   const resetForm = () => {
     setPlanName('');
-    setTargetValue('');
+    setMetric(METRIC_KEYS[0]);
     setPoiMode('all');
     setSelectedPois([]);
     setPoiSearch('');
     setMonthInput(getCurrentMonthKey());
     setSelectedMonths([getCurrentMonthKey()]);
+    setMonthTargets(createInitialMonthTargets());
+    setEditingPlanId(null);
+  };
+
+  const handleEditPlan = (plan) => {
+    const nextMonths = plan.months.length > 0 ? plan.months : [getCurrentMonthKey()];
+    setEditingPlanId(plan.id);
+    setPlanName(plan.name || '');
+    setMetric(plan.metric);
+    setPoiMode(plan.poi_mode);
+    setSelectedPois(plan.poi_mode === 'selected' ? plan.poi_names : []);
+    setPoiSearch('');
+    setMonthInput(nextMonths[0]);
+    setSelectedMonths(nextMonths);
+    setMonthTargets(Object.fromEntries(
+      nextMonths.map((month) => [month, String(plan.month_targets?.[month] ?? '')]),
+    ));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
     setErrorMessage('');
 
-    const numericTarget = Number(targetValue);
-    if (!Number.isFinite(numericTarget) || numericTarget <= 0) {
-      setErrorMessage('目标数字需要大于 0。');
-      return;
-    }
     if (!selectedMonths.length) {
       setErrorMessage('请至少选择一个月份。');
       return;
+    }
+    const normalizedTargets = {};
+    for (const month of selectedMonths) {
+      const numericTarget = Number(monthTargets[month]);
+      if (!Number.isFinite(numericTarget) || numericTarget <= 0) {
+        setErrorMessage(`${formatMonthLabel(month)} 的目标数字需要大于 0。`);
+        return;
+      }
+      normalizedTargets[month] = numericTarget;
     }
     if (poiMode === 'selected' && selectedPois.length === 0) {
       setErrorMessage('选择“部分 POI”时，请至少勾选一个 POI。');
@@ -131,14 +174,19 @@ function PlanSettings() {
 
     setSaving(true);
     try {
-      await createPlan({
+      const payload = {
         name: planName,
         metric,
-        target_value: numericTarget,
+        month_targets: normalizedTargets,
         poi_mode: poiMode,
         poi_names: poiMode === 'selected' ? selectedPois : [],
         months: selectedMonths,
-      });
+      };
+      if (editingPlanId) {
+        await updatePlan(editingPlanId, payload);
+      } else {
+        await createPlan(payload);
+      }
       resetForm();
       await loadPlans();
     } catch (error) {
@@ -172,13 +220,13 @@ function PlanSettings() {
         <div className="plan-section-title">
           <Target size={20} color="var(--accent)" />
           <div>
-            <h2>新建计划</h2>
-            <p>选择一个指标、一个或多个月份，以及全部或部分 POI。多个 POI 会合并计算为一个总进度。</p>
+            <h2>{editingPlanId ? '编辑计划' : '新建计划'}</h2>
+            <p>选择一个指标、一个或多个月份，并为每个月单独填写目标。多个 POI 会合并计算为一个总进度。</p>
           </div>
         </div>
 
         <form className="plan-form" onSubmit={handleSubmit}>
-          <div className="plan-form-grid">
+          <div className="plan-form-grid is-two-column">
             <div className="input-group">
               <label className="input-label">计划名称</label>
               <input
@@ -196,19 +244,6 @@ function PlanSettings() {
                   <option value={metricKey} key={metricKey}>{ALL_METRICS[metricKey]}</option>
                 ))}
               </select>
-            </div>
-
-            <div className="input-group">
-              <label className="input-label">目标数字</label>
-              <input
-                className="input"
-                type="number"
-                step="0.01"
-                min="0"
-                value={targetValue}
-                onChange={(event) => setTargetValue(event.target.value)}
-                placeholder={`${ALL_METRICS[metric]} 的月度目标`}
-              />
             </div>
           </div>
 
@@ -232,6 +267,23 @@ function PlanSettings() {
                 <button type="button" className="plan-month-tag" key={month} onClick={() => handleRemoveMonth(month)}>
                   {formatMonthLabel(month)} ×
                 </button>
+              ))}
+            </div>
+            <div className="plan-month-target-grid">
+              {selectedMonths.map((month) => (
+                <div className="plan-month-target-row" key={`${month}-target`}>
+                  <label htmlFor={`target-${month}`}>{formatMonthLabel(month)}目标</label>
+                  <input
+                    id={`target-${month}`}
+                    className="input"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={monthTargets[month] ?? ''}
+                    onChange={(event) => handleMonthTargetChange(month, event.target.value)}
+                    placeholder={`${ALL_METRICS[metric]} 的月度目标`}
+                  />
+                </div>
               ))}
             </div>
           </div>
@@ -295,8 +347,14 @@ function PlanSettings() {
           {errorMessage && <div className="plan-error">{errorMessage}</div>}
 
           <div className="plan-form-actions">
+            {editingPlanId && (
+              <button type="button" className="btn btn-secondary" onClick={resetForm} disabled={saving}>
+                <X size={16} />
+                取消编辑
+              </button>
+            )}
             <button type="submit" className="btn" disabled={saving}>
-              {saving ? '保存中...' : '保存计划'}
+              {saving ? '保存中...' : editingPlanId ? '保存修改' : '保存计划'}
             </button>
           </div>
         </form>
@@ -335,14 +393,24 @@ function PlanSettings() {
                       <h3>{plan.name || `${ALL_METRICS[plan.metric]}计划`}</h3>
                       <p>{ALL_METRICS[plan.metric]} · {poiLabel}</p>
                     </div>
-                    <button
-                      type="button"
-                      className="plan-delete-button"
-                      onClick={() => handleDeletePlan(plan.id)}
-                      aria-label="删除计划"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    <div className="plan-card-actions">
+                      <button
+                        type="button"
+                        className="plan-edit-button"
+                        onClick={() => handleEditPlan(plan)}
+                        aria-label="编辑计划"
+                      >
+                        <Pencil size={16} />
+                      </button>
+                      <button
+                        type="button"
+                        className="plan-delete-button"
+                        onClick={() => handleDeletePlan(plan.id)}
+                        aria-label="删除计划"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="plan-progress-list">

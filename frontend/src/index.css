@@ -567,6 +567,18 @@ body {
   flex-wrap: wrap;
 }
 
+.poi-date-filter-panel {
+  position: relative;
+  z-index: 3200;
+}
+
+.poi-ranking-grid,
+.poi-chart-grid,
+.poi-composite-card {
+  position: relative;
+  z-index: 1;
+}
+
 .poi-range-summary {
   min-height: 44px;
   padding: 10px 14px;
@@ -925,6 +937,10 @@ body {
   gap: 18px;
 }
 
+.plan-form-grid.is-two-column {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .plan-month-picker {
   display: flex;
   flex-direction: column;
@@ -956,6 +972,28 @@ body {
   font-size: 13px;
   font-weight: 700;
   padding: 7px 12px;
+}
+
+.plan-month-target-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.plan-month-target-row {
+  padding: 14px;
+  border: 1px solid rgba(224, 122, 95, 0.14);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.42);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.plan-month-target-row label {
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .plan-poi-mode {
@@ -1016,6 +1054,7 @@ body {
 .plan-form-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 12px;
 }
 
 .plan-error {
@@ -1070,6 +1109,12 @@ body {
   overflow-wrap: anywhere;
 }
 
+.plan-card-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.plan-edit-button,
 .plan-delete-button {
   flex: 0 0 auto;
   width: 34px;
@@ -1082,6 +1127,16 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.plan-edit-button {
+  background: rgba(224, 122, 95, 0.1);
+  color: var(--accent);
+}
+
+.plan-edit-button:hover {
+  background: var(--accent);
+  color: #fff;
 }
 
 .plan-delete-button:hover {

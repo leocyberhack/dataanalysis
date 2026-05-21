@@ -516,7 +516,7 @@ function POIInsight() {
         <h1 className="page-title">{config.title}</h1>
       </div>
 
-      <div className="glass-panel mb-32">
+      <div className="glass-panel mb-32 poi-date-filter-panel">
         <div className="mobile-date-row poi-filter-bar">
           <div className="input-group status-datepicker-wrapper is-compare mobile-full-width">
             <label className="input-label">分析日期范围</label>

@@ -115,6 +115,13 @@ def _run_migrations():
             models.Base.metadata.tables["plans"].create(bind=engine)
             conn.commit()
 
+        try:
+            conn.execute(text("SELECT month_targets FROM plans LIMIT 1"))
+        except Exception:
+            conn.rollback()
+            conn.execute(text("ALTER TABLE plans ADD COLUMN month_targets TEXT DEFAULT '{}'"))
+            conn.commit()
+
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_products_name ON products (name)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_data_product_id_date ON daily_data (product_id, date)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_pending_orders_status_date_id ON pending_orders (status, date, id)"))

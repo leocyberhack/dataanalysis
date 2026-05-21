@@ -1,4 +1,5 @@
 import calendar
+import json
 import re
 from datetime import date
 
@@ -49,13 +50,43 @@ def split_stored_list(value):
     return [item for item in value.split(",") if item]
 
 
+def parse_month_targets(months, month_targets, fallback_target=None):
+    normalized_targets = {}
+    for month in months:
+        target_value = month_targets.get(month) if month_targets else None
+        if target_value is None:
+            target_value = fallback_target
+        try:
+            numeric_target = float(target_value)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"Invalid target value for {month}")
+        if numeric_target <= 0:
+            raise HTTPException(status_code=400, detail=f"Target value for {month} must be greater than 0")
+        normalized_targets[month] = numeric_target
+    return normalized_targets
+
+
+def load_plan_month_targets(plan, months):
+    try:
+        raw_targets = json.loads(plan.month_targets or "{}")
+    except json.JSONDecodeError:
+        raw_targets = {}
+
+    fallback_target = float(plan.target_value or 0)
+    return {
+        month: float(raw_targets.get(month, fallback_target) or 0)
+        for month in months
+    }
+
+
 def serialize_plan(plan, db):
     months = split_stored_list(plan.months)
     poi_names = split_stored_list(plan.poi_names)
-    target_value = float(plan.target_value or 0)
+    month_targets = load_plan_month_targets(plan, months)
     progress = []
 
     for month in months:
+        target_value = month_targets.get(month, 0)
         start_date, end_date = get_month_range(month)
         aggregate = build_compare_aggregate_payload(
             db=db,
@@ -79,7 +110,8 @@ def serialize_plan(plan, db):
         "id": plan.id,
         "name": plan.name or "",
         "metric": plan.metric,
-        "target_value": target_value,
+        "target_value": next(iter(month_targets.values()), float(plan.target_value or 0)),
+        "month_targets": month_targets,
         "poi_mode": plan.poi_mode,
         "poi_names": poi_names,
         "months": months,
@@ -97,6 +129,7 @@ def get_plans(db: Session = Depends(get_db)):
 def create_plan(request: PlanCreateRequest, db: Session = Depends(get_db)):
     selected_metric = parse_compare_metrics(request.metric)[0]
     months = parse_months(request.months)
+    month_targets = parse_month_targets(months, request.month_targets, request.target_value)
     poi_mode = "selected" if request.poi_mode == "selected" else "all"
     poi_names = []
 
@@ -109,18 +142,49 @@ def create_plan(request: PlanCreateRequest, db: Session = Depends(get_db)):
         if not poi_names:
             raise HTTPException(status_code=400, detail="At least one POI is required")
 
-    if request.target_value <= 0:
-        raise HTTPException(status_code=400, detail="Target value must be greater than 0")
-
     plan = models.Plan(
         name=(request.name or "").strip(),
         metric=selected_metric,
-        target_value=request.target_value,
+        target_value=next(iter(month_targets.values()), 0),
+        month_targets=json.dumps(month_targets, ensure_ascii=False),
         poi_mode=poi_mode,
         poi_names=",".join(poi_names),
         months=",".join(months),
     )
     db.add(plan)
+    db.commit()
+    db.refresh(plan)
+    return serialize_plan(plan, db)
+
+
+@router.put("/plans/{plan_id}")
+def update_plan(plan_id: int, request: PlanCreateRequest, db: Session = Depends(get_db)):
+    plan = db.query(models.Plan).filter(models.Plan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+
+    selected_metric = parse_compare_metrics(request.metric)[0]
+    months = parse_months(request.months)
+    month_targets = parse_month_targets(months, request.month_targets, request.target_value)
+    poi_mode = "selected" if request.poi_mode == "selected" else "all"
+    poi_names = []
+
+    if poi_mode == "selected":
+        poi_names = list(dict.fromkeys(
+            str(name).strip()
+            for name in request.poi_names
+            if str(name).strip()
+        ))
+        if not poi_names:
+            raise HTTPException(status_code=400, detail="At least one POI is required")
+
+    plan.name = (request.name or "").strip()
+    plan.metric = selected_metric
+    plan.target_value = next(iter(month_targets.values()), 0)
+    plan.month_targets = json.dumps(month_targets, ensure_ascii=False)
+    plan.poi_mode = poi_mode
+    plan.poi_names = ",".join(poi_names)
+    plan.months = ",".join(months)
     db.commit()
     db.refresh(plan)
     return serialize_plan(plan, db)

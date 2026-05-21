@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -14,7 +14,8 @@ class ApproveOrderRequest(BaseModel):
 class PlanCreateRequest(BaseModel):
     name: Optional[str] = ""
     metric: str
-    target_value: float
+    target_value: Optional[float] = None
+    month_targets: Dict[str, float] = Field(default_factory=dict)
     poi_mode: str = "all"
     poi_names: List[str] = Field(default_factory=list)
     months: List[str]

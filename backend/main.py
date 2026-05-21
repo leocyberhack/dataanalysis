@@ -32,6 +32,7 @@ from routes_plans import (
     delete_plan,
     get_plans,
     router as plans_router,
+    update_plan,
 )
 from routes_upload import (
     delete_commodity_data,
@@ -87,7 +88,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=False,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
     expose_headers=["*"],
 )
@@ -151,6 +152,7 @@ __all__ = [
     "refresh_materialized_summaries",
     "safe_divide",
     "update_pending_order",
+    "update_plan",
     "upload_file",
     "upload_orders",
 ]

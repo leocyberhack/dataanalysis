@@ -283,6 +283,12 @@ export const createPlan = async (payload) => {
   return res.data;
 };
 
+export const updatePlan = async (planId, payload) => {
+  const res = await api.put(`/plans/${planId}`, payload);
+  invalidateApiCache();
+  return res.data;
+};
+
 export const deletePlan = async (planId) => {
   const res = await api.delete(`/plans/${planId}`);
   invalidateApiCache();
