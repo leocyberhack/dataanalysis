@@ -7,6 +7,7 @@ const Upload = lazy(() => import('./pages/Upload'));
 const Compare = lazy(() => import('./pages/Compare'));
 const OrderReview = lazy(() => import('./pages/OrderReview'));
 const POIInsight = lazy(() => import('./pages/POIInsight'));
+const PlanSettings = lazy(() => import('./pages/PlanSettings'));
 
 function App() {
   return (
@@ -22,6 +23,7 @@ function App() {
                 <Route path="/compare" element={<Compare />} />
                 <Route path="/review" element={<OrderReview />} />
                 <Route path="/poi/:module" element={<POIInsight />} />
+                <Route path="/plans" element={<PlanSettings />} />
               </Routes>
             </Suspense>
           </main>

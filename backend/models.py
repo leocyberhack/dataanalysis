@@ -1,5 +1,6 @@
-from sqlalchemy import Boolean, Column, Date, Float, ForeignKey, Index, Integer, String
+from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 
 from database import Base
 
@@ -83,6 +84,19 @@ class PendingOrder(Base):
     profit = Column(Float, default=0)
     salesperson = Column(String, default="")
     status = Column(String, default="pending")
+
+
+class Plan(Base):
+    __tablename__ = "plans"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    name = Column(String, default="")
+    metric = Column(String, index=True)
+    target_value = Column(Float, default=0)
+    poi_mode = Column(String, default="all")
+    poi_names = Column(String, default="")
+    months = Column(String, default="")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class DailySummary(Base):

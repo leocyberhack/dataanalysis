@@ -222,6 +222,17 @@ body {
   box-shadow: none;
 }
 
+.btn-secondary {
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--accent);
+  border: 1px solid rgba(224, 122, 95, 0.2);
+}
+
+.btn-secondary:hover {
+  background: rgba(224, 122, 95, 0.1);
+  color: var(--accent-hover);
+}
+
 .input-group {
   display: flex;
   flex-direction: column;
@@ -255,6 +266,10 @@ body {
 
 .status-datepicker-wrapper .react-datepicker-wrapper {
   width: 100%;
+}
+
+.react-datepicker-popper {
+  z-index: 3000 !important;
 }
 
 .status-datepicker-wrapper.is-dashboard .react-datepicker-wrapper {
@@ -544,6 +559,8 @@ body {
 }
 
 .poi-filter-bar {
+  position: relative;
+  z-index: 20;
   display: flex;
   align-items: flex-end;
   gap: 18px;
@@ -620,12 +637,30 @@ body {
 }
 
 .poi-ranking-row {
+  width: 100%;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
   padding-bottom: 10px;
+  border: 0;
   border-bottom: 1px solid rgba(224, 122, 95, 0.1);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.18s ease, transform 0.18s ease;
+}
+
+.poi-ranking-row:hover {
+  background: rgba(224, 122, 95, 0.07);
+  transform: translateX(2px);
+}
+
+.poi-ranking-row:focus-visible {
+  outline: 2px solid rgba(224, 122, 95, 0.45);
+  outline-offset: 3px;
 }
 
 .poi-ranking-row:last-child {
@@ -741,6 +776,383 @@ body {
 
 .poi-empty-state {
   text-align: center;
+}
+
+.poi-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 3600;
+  padding: 24px;
+  background: rgba(44, 36, 27, 0.34);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.poi-detail-modal {
+  width: min(940px, calc(100vw - 32px));
+  max-height: min(760px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.84);
+  border-radius: 22px;
+  background: rgba(255, 252, 245, 0.96);
+  box-shadow: 0 24px 80px rgba(74, 63, 53, 0.26);
+}
+
+.poi-detail-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 24px 24px 18px;
+  border-bottom: 1px solid rgba(224, 122, 95, 0.14);
+}
+
+.poi-detail-eyebrow {
+  display: inline-block;
+  margin-bottom: 7px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.poi-detail-modal-header h2 {
+  margin: 0 0 6px;
+  color: #2c241b;
+  font-size: 22px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.poi-detail-modal-header p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.poi-detail-close {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(224, 122, 95, 0.12);
+  color: var(--accent);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.18s ease, transform 0.18s ease;
+}
+
+.poi-detail-close:hover,
+.poi-detail-close:focus-visible {
+  background: var(--accent);
+  color: #fff;
+  transform: rotate(6deg);
+  outline: none;
+}
+
+.poi-detail-modal-body {
+  min-height: 180px;
+  overflow: auto;
+  padding: 18px 24px 24px;
+}
+
+.poi-detail-table-wrapper {
+  max-height: min(540px, calc(100vh - 250px));
+}
+
+.poi-detail-table th,
+.poi-detail-table td {
+  vertical-align: top;
+}
+
+.poi-detail-product-name {
+  min-width: 260px;
+  max-width: 460px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-weight: 650;
+}
+
+.poi-detail-message {
+  padding: 40px 0;
+  text-align: center;
+}
+
+.plan-builder-card,
+.plan-card {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.plan-section-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.plan-section-title h2 {
+  margin: 0 0 6px;
+  color: #2c241b;
+  font-size: 19px;
+  font-weight: 800;
+}
+
+.plan-section-title p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.plan-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.plan-form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.plan-month-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.plan-month-input-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.plan-month-input-row .input {
+  max-width: 260px;
+}
+
+.plan-month-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.plan-month-tag {
+  border: 1px solid rgba(224, 122, 95, 0.18);
+  border-radius: 999px;
+  background: rgba(224, 122, 95, 0.1);
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 7px 12px;
+}
+
+.plan-poi-mode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.plan-radio-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid rgba(224, 122, 95, 0.16);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.42);
+  color: var(--text-main);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.plan-radio-card.is-selected {
+  border-color: rgba(224, 122, 95, 0.45);
+  background: rgba(224, 122, 95, 0.12);
+  color: var(--accent);
+}
+
+.plan-poi-selector {
+  padding: 16px;
+  border: 1px solid rgba(224, 122, 95, 0.14);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.36);
+}
+
+.plan-poi-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.plan-poi-toolbar .compare-selector-search {
+  flex: 1 1 auto;
+}
+
+.plan-poi-count {
+  margin-bottom: 10px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.plan-poi-list {
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.plan-form-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.plan-error {
+  padding: 12px 14px;
+  border: 1px solid rgba(217, 4, 41, 0.18);
+  border-radius: 12px;
+  background: rgba(217, 4, 41, 0.08);
+  color: var(--danger);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.plan-list-section {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.plan-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.plan-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 20px;
+}
+
+.plan-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.plan-card-header h3 {
+  margin: 0 0 6px;
+  color: #2c241b;
+  font-size: 18px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.plan-card-header p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.plan-delete-button {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(217, 4, 41, 0.08);
+  color: var(--danger);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.plan-delete-button:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+.plan-progress-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.plan-progress-item {
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid rgba(245, 158, 11, 0.24);
+}
+
+.plan-progress-item.is-achieved {
+  border-color: rgba(85, 166, 48, 0.26);
+  background: rgba(85, 166, 48, 0.1);
+}
+
+.plan-progress-item.is-pending {
+  border-color: rgba(245, 158, 11, 0.32);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.plan-progress-topline {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  color: var(--text-main);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.plan-progress-item.is-achieved .plan-progress-topline strong {
+  color: var(--success);
+}
+
+.plan-progress-item.is-pending .plan-progress-topline strong {
+  color: #b7791f;
+}
+
+.plan-progress-bar {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(140, 123, 101, 0.12);
+}
+
+.plan-progress-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #f59e0b, #fbbf24);
+}
+
+.plan-progress-item.is-achieved .plan-progress-bar span {
+  background: linear-gradient(90deg, var(--success), #8bc34a);
+}
+
+.plan-progress-values {
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 /* Top Synchronized Scrollbar */
@@ -1347,6 +1759,51 @@ body {
 
   .poi-chart-panel {
     padding: 16px 12px 10px;
+  }
+
+  .poi-modal-backdrop {
+    padding: 12px;
+    align-items: flex-start;
+  }
+
+  .poi-detail-modal {
+    width: 100%;
+    max-height: calc(100dvh - 24px);
+  }
+
+  .poi-detail-modal-header {
+    padding: 18px 18px 14px;
+  }
+
+  .poi-detail-modal-body {
+    padding: 14px 18px 18px;
+  }
+
+  .poi-detail-product-name {
+    min-width: 220px;
+  }
+
+  .plan-form-grid,
+  .plan-poi-mode,
+  .plan-card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .plan-month-input-row,
+  .plan-poi-toolbar,
+  .plan-list-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .plan-month-input-row .input {
+    max-width: none;
+  }
+
+  .plan-form-actions .btn,
+  .plan-list-header .btn {
+    width: 100%;
+    justify-content: center;
   }
 }
 

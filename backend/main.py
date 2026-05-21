@@ -27,6 +27,12 @@ from routes_review import (
     router as review_router,
     update_pending_order,
 )
+from routes_plans import (
+    create_plan,
+    delete_plan,
+    get_plans,
+    router as plans_router,
+)
 from routes_upload import (
     delete_commodity_data,
     delete_data,
@@ -90,6 +96,7 @@ app.include_router(upload_router)
 app.include_router(query_router)
 app.include_router(compare_router)
 app.include_router(review_router)
+app.include_router(plans_router)
 
 
 __all__ = [
@@ -112,10 +119,12 @@ __all__ = [
     "clear_runtime_caches",
     "compute_display_metric_value",
     "compute_total_rate",
+    "create_plan",
     "delete_commodity_data",
     "delete_data",
     "delete_order_data",
     "delete_pending_order",
+    "delete_plan",
     "ensure_daily_product_summaries",
     "ensure_daily_summaries",
     "get_compare_aggregate",
@@ -127,6 +136,7 @@ __all__ = [
     "get_poi_options",
     "get_pois",
     "get_pending_orders",
+    "get_plans",
     "get_product_ids_for_pois",
     "get_products",
     "get_summary",

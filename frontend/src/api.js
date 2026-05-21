@@ -184,6 +184,19 @@ export const getCompareAggregate = async (startDate, endDate, filters = null, me
   return cachedGet('/compare/aggregate', params);
 };
 
+export const getPoiProductMetricBreakdown = async (startDate, endDate, poiName, metrics = null) => {
+  const params = {
+    startDate,
+    endDate,
+    groupBy: 'product',
+    poiNames: poiName,
+  };
+  if (metrics && metrics.length > 0) {
+    params.metrics = metrics.join(',');
+  }
+  return cachedGet('/compare/aggregate', params);
+};
+
 const normalizeCompareTrendResponse = (payload) => {
   if (Array.isArray(payload)) {
     const dates = Array.from(new Set(
@@ -258,6 +271,20 @@ export const updateOrderProfit = async (orderId, profit) => {
 
 export const deletePendingOrder = async (orderId) => {
   const res = await api.delete(`/pending_order/${orderId}`);
+  invalidateApiCache();
+  return res.data;
+};
+
+export const getPlans = async () => cachedGet('/plans');
+
+export const createPlan = async (payload) => {
+  const res = await api.post('/plans', payload);
+  invalidateApiCache();
+  return res.data;
+};
+
+export const deletePlan = async (planId) => {
+  const res = await api.delete(`/plans/${planId}`);
   invalidateApiCache();
   return res.data;
 };

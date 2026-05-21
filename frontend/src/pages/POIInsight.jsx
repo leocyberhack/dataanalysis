@@ -4,8 +4,14 @@ import DatePicker, { registerLocale } from 'react-datepicker';
 import { zhCN } from 'date-fns/locale';
 import 'react-datepicker/dist/react-datepicker.css';
 import ReactEChartsCore from 'echarts-for-react/lib/core';
-import { ArrowDownRight, ArrowUpRight, Minus, Trophy } from 'lucide-react';
-import { getCompareAggregate, getCompareTrend, getDateStatus, getDates } from '../api';
+import { ArrowDownRight, ArrowUpRight, Minus, Trophy, X } from 'lucide-react';
+import {
+  getCompareAggregate,
+  getCompareTrend,
+  getDateStatus,
+  getDates,
+  getPoiProductMetricBreakdown,
+} from '../api';
 import {
   formatDateKey,
   formatDateRangeKeys,
@@ -69,6 +75,15 @@ const MODULE_CONFIGS = {
 
 const TREND_LIMIT = 5;
 const RANK_LIMIT = 5;
+const INITIAL_DETAIL_MODAL = {
+  isOpen: false,
+  poiKey: '',
+  poiName: '',
+  metric: null,
+  rows: [],
+  loading: false,
+  error: '',
+};
 
 const addDays = (date, days) => {
   const nextDate = new Date(date);
@@ -240,14 +255,20 @@ const buildTrendOption = ({ metric, trendRows, trendDates, groupNames }) => {
   };
 };
 
-function RankingTable({ title, rows, metric }) {
+function RankingTable({ title, rows, metric, onRowClick }) {
   return (
     <div className="poi-ranking-table">
       <div className="poi-ranking-table-title">{title}</div>
       {rows.length > 0 ? (
         <div className="poi-ranking-list">
           {rows.map((row) => (
-            <div className="poi-ranking-row" key={`${title}-${row.key}`}>
+            <button
+              type="button"
+              className="poi-ranking-row"
+              key={`${title}-${row.key}`}
+              onClick={() => onRowClick(row, metric)}
+              title={`查看 ${row.name} 的商品明细`}
+            >
               <div className="poi-ranking-main">
                 <span className="poi-rank-badge">{row.rank}</span>
                 <span className="poi-ranking-name" title={row.name}>{row.name}</span>
@@ -259,7 +280,7 @@ function RankingTable({ title, rows, metric }) {
                   {formatChange(row.change)}
                 </span>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       ) : (
@@ -283,6 +304,7 @@ function POIInsight() {
   const [trendPayloads, setTrendPayloads] = useState({});
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [detailModal, setDetailModal] = useState(INITIAL_DETAIL_MODAL);
 
   const renderDateStatusDay = useMemo(
     () => createDateStatusDayRenderer(dateStatus),
@@ -373,6 +395,10 @@ function POIInsight() {
     fetchInsight();
   }, [config, endDate, startDate]);
 
+  useEffect(() => {
+    setDetailModal(INITIAL_DETAIL_MODAL);
+  }, [module, endDate, startDate]);
+
   const previousRowsByKey = useMemo(
     () => new Map(previousRows.map((row) => [row.group_key, row])),
     [previousRows],
@@ -404,6 +430,72 @@ function POIInsight() {
     setPickerEndDate(end);
     setStartDate(start);
     setEndDate(end || start);
+  };
+
+  const handleCloseDetailModal = () => {
+    setDetailModal(INITIAL_DETAIL_MODAL);
+  };
+
+  const handleOpenPoiDetail = async (row, metric) => {
+    if (!startDate || !endDate) {
+      return;
+    }
+
+    const { startKey, endKey } = formatDateRangeKeys(startDate, endDate);
+    setDetailModal({
+      isOpen: true,
+      poiKey: row.key,
+      poiName: row.name,
+      metric,
+      rows: [],
+      loading: true,
+      error: '',
+    });
+
+    try {
+      const response = await getPoiProductMetricBreakdown(startKey, endKey, row.key, [metric.key]);
+      const rankedRows = rankRows(response.rows || [], metric.key, 'desc').map((productRow) => ({
+        key: productRow.group_key,
+        name: productRow.group_name,
+        productId: productRow.product_id || productRow.group_key,
+        rank: productRow.rank,
+        value: productRow.metricValue,
+      }));
+
+      setDetailModal((currentModal) => {
+        if (
+          !currentModal.isOpen
+          || currentModal.poiKey !== row.key
+          || currentModal.metric?.key !== metric.key
+        ) {
+          return currentModal;
+        }
+
+        return {
+          ...currentModal,
+          rows: rankedRows,
+          loading: false,
+        };
+      });
+    } catch (error) {
+      console.error(error);
+      setDetailModal((currentModal) => {
+        if (
+          !currentModal.isOpen
+          || currentModal.poiKey !== row.key
+          || currentModal.metric?.key !== metric.key
+        ) {
+          return currentModal;
+        }
+
+        return {
+          ...currentModal,
+          rows: [],
+          loading: false,
+          error: error.response?.data?.detail || error.message || '商品明细加载失败，请稍后重试。',
+        };
+      });
+    }
   };
 
   if (!config) {
@@ -460,8 +552,18 @@ function POIInsight() {
               <section className="glass-panel poi-metric-card" key={metric.key}>
                 <h3>{metric.label}</h3>
                 <div className="poi-dual-ranking">
-                  <RankingTable title="前五 POI" rows={topRows} metric={metric} />
-                  <RankingTable title="倒数五 POI" rows={bottomRows} metric={metric} />
+                  <RankingTable
+                    title="前五 POI"
+                    rows={topRows}
+                    metric={metric}
+                    onRowClick={handleOpenPoiDetail}
+                  />
+                  <RankingTable
+                    title="倒数五 POI"
+                    rows={bottomRows}
+                    metric={metric}
+                    onRowClick={handleOpenPoiDetail}
+                  />
                 </div>
               </section>
             ))}
@@ -516,6 +618,75 @@ function POIInsight() {
             </div>
           </section>
         </>
+      )}
+
+      {detailModal.isOpen && (
+        <div className="poi-modal-backdrop" onClick={handleCloseDetailModal}>
+          <div
+            className="poi-detail-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="poi-detail-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="poi-detail-modal-header">
+              <div>
+                <span className="poi-detail-eyebrow">POI 商品明细</span>
+                <h2 id="poi-detail-modal-title">{detailModal.poiName}</h2>
+                <p>
+                  {detailModal.metric?.label || '--'}
+                  {' · '}
+                  {startDate ? formatDateKey(startDate) : '--'}
+                  {' 至 '}
+                  {endDate ? formatDateKey(endDate) : '--'}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="poi-detail-close"
+                onClick={handleCloseDetailModal}
+                aria-label="关闭商品明细"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="poi-detail-modal-body">
+              {detailModal.loading ? (
+                <div className="poi-empty poi-detail-message">商品明细加载中...</div>
+              ) : detailModal.error ? (
+                <div className="poi-empty poi-detail-message">{detailModal.error}</div>
+              ) : detailModal.rows.length > 0 ? (
+                <div className="data-table-wrapper poi-detail-table-wrapper">
+                  <table className="data-table poi-detail-table">
+                    <thead>
+                      <tr>
+                        <th>排名</th>
+                        <th>商品</th>
+                        <th>商品 ID</th>
+                        <th>{detailModal.metric?.label || '指标值'}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detailModal.rows.map((productRow) => (
+                        <tr key={productRow.key}>
+                          <td>{productRow.rank}</td>
+                          <td className="poi-detail-product-name" title={productRow.name}>
+                            {productRow.name}
+                          </td>
+                          <td>{productRow.productId}</td>
+                          <td>{formatValue(productRow.value, detailModal.metric?.type)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="poi-empty poi-detail-message">暂无商品明细数据</div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

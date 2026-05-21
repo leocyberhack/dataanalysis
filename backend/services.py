@@ -108,11 +108,19 @@ def _run_migrations():
             models.Base.metadata.tables["daily_product_summaries"].create(bind=engine)
             conn.commit()
 
+        try:
+            conn.execute(text("SELECT 1 FROM plans LIMIT 1"))
+        except Exception:
+            conn.rollback()
+            models.Base.metadata.tables["plans"].create(bind=engine)
+            conn.commit()
+
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_products_name ON products (name)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_data_product_id_date ON daily_data (product_id, date)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_pending_orders_status_date_id ON pending_orders (status, date, id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_product_summaries_date_product_id ON daily_product_summaries (date, product_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_product_summaries_product_id_date ON daily_product_summaries (product_id, date)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_plans_metric ON plans (metric)"))
         conn.commit()
 
 
@@ -536,8 +544,6 @@ def prepare_compare_dataset(
 
     if group_by == "poi" and parsed_product_ids:
         raise HTTPException(status_code=400, detail="POI compare mode does not accept product filters")
-    if group_by == "product" and parsed_poi_names:
-        raise HTTPException(status_code=400, detail="Product compare mode does not accept POI filters")
 
     sum_metrics = list(dict.fromkeys(
         metric
@@ -574,8 +580,31 @@ def prepare_compare_dataset(
                     "poi_rules": poi_rules,
                     "selected_metrics": selected_metrics,
                 }
-    elif parsed_product_ids:
-        query_product_ids = parsed_product_ids
+    else:
+        if parsed_poi_names:
+            poi_rules = load_poi_rules()
+            all_products = PRODUCT_INDEX.get_products(db)
+            poi_mapping = build_product_poi_map(all_products, poi_rules)
+            selected_pois = set(parsed_poi_names)
+            query_product_ids = [
+                product_id
+                for product_id, poi_name in poi_mapping["product_to_poi"].items()
+                if poi_name in selected_pois
+            ]
+            if not query_product_ids:
+                return {
+                    "groups": {},
+                    "overall_bucket": _create_compare_bucket(sum_metrics),
+                    "global_bucket": _create_compare_bucket(sum_metrics),
+                    "global_daily_buckets": {},
+                    "selected_range_day_count": selected_range_day_count,
+                    "sorted_dates": [],
+                    "group_by": group_by,
+                    "poi_rules": poi_rules,
+                    "selected_metrics": selected_metrics,
+                }
+        elif parsed_product_ids:
+            query_product_ids = parsed_product_ids
 
     query = db.query(
         models.DailyProductSummary,

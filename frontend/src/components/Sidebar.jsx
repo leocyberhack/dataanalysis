@@ -1,6 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import {
     BarChart2,
+    CalendarCheck,
     ClipboardCheck,
     Coins,
     FileUp,
@@ -46,6 +47,10 @@ const Sidebar = () => {
                 <NavLink to="/poi/profit" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
                     <Coins size={20} />
                     <span>利润数据</span>
+                </NavLink>
+                <NavLink to="/plans" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                    <CalendarCheck size={20} />
+                    <span>计划设定</span>
                 </NavLink>
                 <NavLink to="/upload" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
                     <FileUp size={20} />
