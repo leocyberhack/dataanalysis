@@ -73,17 +73,17 @@ const MODULE_CONFIGS = {
 };
 
 const RANK_LIMIT = 5;
-const SHAREABLE_METRICS = new Set([
-  'visitor_count',
-  'page_views',
-  'pay_amount',
-  'redeem_amount',
-  'redeem_items',
-  'pay_items',
-  'refund_amount',
-  'refund_items',
-  'profit',
-]);
+const SHARE_LABELS = {
+  visitor_count: '访客数占比',
+  page_views: '浏览量占比',
+  pay_amount: '支付金额占比',
+  redeem_amount: '核销金额占比',
+  redeem_items: '核销件数占比',
+  pay_items: '支付件数占比',
+  refund_amount: '退款金额占比',
+  refund_items: '退款件数占比',
+  profit: '利润占比',
+};
 const INITIAL_DETAIL_MODAL = {
   isOpen: false,
   poiKey: '',
@@ -116,11 +116,13 @@ const formatValue = (value, type) => {
   });
 };
 
-const formatShare = (value) => {
+const getShareLabel = (metric) => SHARE_LABELS[metric.key] || `${metric.label}占比`;
+
+const formatShare = (value, metric) => {
   if (!Number.isFinite(value)) {
     return '';
   }
-  return `占比 ${value.toFixed(2)}%`;
+  return `${getShareLabel(metric)} ${value.toFixed(2)}%`;
 };
 
 const formatDisplayDateKey = (value) => formatDateKey(value).replaceAll('-', '/');
@@ -131,7 +133,7 @@ const formatDisplayDateRange = (startValue, endValue) => {
   return startKey && endKey ? `${startKey}-${endKey}` : '--';
 };
 
-const shouldShowShare = (metric) => SHAREABLE_METRICS.has(metric.key);
+const shouldShowShare = (metric) => Object.prototype.hasOwnProperty.call(SHARE_LABELS, metric.key);
 
 const calculateShare = (value, total) => {
   const numericTotal = Number(total || 0);
@@ -193,7 +195,16 @@ const rankRows = (rows, metricKey, direction = 'desc') => {
   });
 };
 
-const buildRankingRows = (rows, previousRowsByKey, currentTotals, metric, direction) => rankRows(rows, metric.key, direction)
+const buildShareTotals = (rows, metrics) => Object.fromEntries(
+  metrics
+    .filter(shouldShowShare)
+    .map((metric) => [
+      metric.key,
+      rows.reduce((sum, row) => sum + Number(row[`${metric.key}_total`] || 0), 0),
+    ]),
+);
+
+const buildRankingRows = (rows, previousRowsByKey, shareTotals, metric, direction) => rankRows(rows, metric.key, direction)
   .slice(0, RANK_LIMIT)
   .map((row) => {
     const previousRow = previousRowsByKey.get(row.group_key);
@@ -204,7 +215,7 @@ const buildRankingRows = (rows, previousRowsByKey, currentTotals, metric, direct
       rank: row.rank,
       value: row.metricValue,
       previousValue,
-      share: shouldShowShare(metric) ? calculateShare(row.metricValue, currentTotals[metric.key]) : null,
+      share: shouldShowShare(metric) ? calculateShare(row.metricValue, shareTotals[metric.key]) : null,
       change: calculateChange(row.metricValue, previousValue),
     };
   });
@@ -323,7 +334,7 @@ function RankingTable({ title, rows, metric, previousRangeLabel, onRowClick }) {
                 <span className="poi-ranking-value-line">
                   <span className="poi-ranking-value">{formatValue(row.value, metric.type)}</span>
                   {row.share !== null && row.share !== undefined && (
-                    <span className="poi-ranking-share">{formatShare(row.share)}</span>
+                    <span className="poi-ranking-share">{formatShare(row.share, metric)}</span>
                   )}
                 </span>
                 <span className={getChangeClassName(row.change)}>
@@ -359,7 +370,6 @@ function POIInsight() {
   const [endDate, setEndDate] = useState(null);
   const [currentRows, setCurrentRows] = useState([]);
   const [previousRows, setPreviousRows] = useState([]);
-  const [currentTotals, setCurrentTotals] = useState({});
   const [trendPayloads, setTrendPayloads] = useState({});
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -436,13 +446,11 @@ function POIInsight() {
 
         setCurrentRows(nextCurrentRows);
         setPreviousRows(nextPreviousRows);
-        setCurrentTotals(currentAggregate.overall_totals || {});
         setTrendPayloads(Object.fromEntries(trendEntries));
       } catch (error) {
         console.error(error);
         setCurrentRows([]);
         setPreviousRows([]);
-        setCurrentTotals({});
         setTrendPayloads({});
         setErrorMessage(error.response?.data?.detail || error.message || '数据加载失败，请稍后重试。');
       } finally {
@@ -460,6 +468,10 @@ function POIInsight() {
   const previousRowsByKey = useMemo(
     () => new Map(previousRows.map((row) => [row.group_key, row])),
     [previousRows],
+  );
+  const shareTotals = useMemo(
+    () => config ? buildShareTotals(currentRows, config.metrics) : {},
+    [config, currentRows],
   );
 
   const previousRange = useMemo(() => {
@@ -491,10 +503,10 @@ function POIInsight() {
 
     return config.metrics.map((metric) => ({
       metric,
-      topRows: buildRankingRows(currentRows, previousRowsByKey, currentTotals, metric, 'desc'),
-      bottomRows: buildRankingRows(currentRows, previousRowsByKey, currentTotals, metric, 'asc'),
+      topRows: buildRankingRows(currentRows, previousRowsByKey, shareTotals, metric, 'desc'),
+      bottomRows: buildRankingRows(currentRows, previousRowsByKey, shareTotals, metric, 'asc'),
     }));
-  }, [config, currentRows, currentTotals, previousRowsByKey]);
+  }, [config, currentRows, previousRowsByKey, shareTotals]);
 
   const compositeRows = useMemo(
     () => config ? buildCompositeRows(currentRows, previousRowsByKey, config.metrics) : [],
