@@ -9,6 +9,7 @@ from deps import get_db
 from services import (
     build_compare_aggregate_payload,
     build_compare_trend_payload,
+    build_compare_trends_payload,
     parse_compare_metrics,
     parse_poi_names,
     parse_product_ids,
@@ -88,3 +89,75 @@ def get_compare_trend(
         return payload
 
     return payload["rows"]
+
+
+@router.get("/poi/insight")
+def get_poi_insight(
+    startDate: str,
+    endDate: str,
+    previousStartDate: str,
+    previousEndDate: str,
+    metrics: str,
+    trendLimit: int = 5,
+    db: Session = Depends(get_db),
+):
+    try:
+        start = datetime.strptime(startDate, "%Y-%m-%d").date()
+        end = datetime.strptime(endDate, "%Y-%m-%d").date()
+        previous_start = datetime.strptime(previousStartDate, "%Y-%m-%d").date()
+        previous_end = datetime.strptime(previousEndDate, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid dates")
+
+    selected_metrics = parse_compare_metrics(metrics)
+    current_aggregate = build_compare_aggregate_payload(
+        db=db,
+        start_date=start,
+        end_date=end,
+        selected_metrics=selected_metrics,
+        group_by="poi",
+    )
+    previous_aggregate = build_compare_aggregate_payload(
+        db=db,
+        start_date=previous_start,
+        end_date=previous_end,
+        selected_metrics=selected_metrics,
+        group_by="poi",
+    )
+
+    current_rows = current_aggregate.get("rows") or []
+    trend_group_keys = {}
+    trend_group_names = {}
+    safe_trend_limit = max(1, min(int(trendLimit or 5), 20))
+    for metric in selected_metrics:
+        top_rows = sorted(
+            current_rows,
+            key=lambda row: float(row.get(f"{metric}_total") or 0),
+            reverse=True,
+        )[:safe_trend_limit]
+        trend_group_keys[metric] = [row["group_key"] for row in top_rows]
+        trend_group_names[metric] = {
+            row["group_key"]: row["group_name"]
+            for row in top_rows
+        }
+
+    trend_payloads = build_compare_trends_payload(
+        db=db,
+        start_date=start,
+        end_date=end,
+        selected_metrics=selected_metrics,
+        group_by="poi",
+        group_keys_by_metric=trend_group_keys,
+    )
+
+    return {
+        "current": current_aggregate,
+        "previous": previous_aggregate,
+        "trends": {
+            metric: {
+                **trend_payloads.get(metric, {"dates": [], "rows": [], "group_by": "poi"}),
+                "group_names": trend_group_names.get(metric, {}),
+            }
+            for metric in selected_metrics
+        },
+    }

@@ -45,7 +45,8 @@ const invalidateApiCache = () => {
 };
 
 const cachedGet = async (endpoint, params = {}, ttlMs = GET_CACHE_TTL_MS) => {
-  const cacheKey = buildCacheKey(endpoint, params);
+  const requestVersion = cacheVersion;
+  const cacheKey = `${requestVersion}:${buildCacheKey(endpoint, params)}`;
   const cachedEntry = getResponseCache.get(cacheKey);
   const now = Date.now();
 
@@ -57,8 +58,12 @@ const cachedGet = async (endpoint, params = {}, ttlMs = GET_CACHE_TTL_MS) => {
     return cloneCachedValue(await inflightGetRequests.get(cacheKey));
   }
 
-  const requestVersion = cacheVersion;
-  const requestPromise = api.get(endpoint, { params }).then((response) => {
+  const requestPromise = api.get(endpoint, {
+    params: {
+      ...params,
+      _v: requestVersion,
+    },
+  }).then((response) => {
     inflightGetRequests.delete(cacheKey);
     if (requestVersion === cacheVersion) {
       getResponseCache.set(cacheKey, {
@@ -97,6 +102,20 @@ export const uploadOrderData = async (date, file) => {
   });
   invalidateApiCache();
   return response;
+};
+
+export const uploadBatchData = async (items) => {
+  const formData = new FormData();
+  formData.append('dates', JSON.stringify(items.map((item) => item.date)));
+  formData.append('types', JSON.stringify(items.map((item) => item.type)));
+  items.forEach((item) => {
+    formData.append('files', item.file);
+  });
+  const response = await api.post('/upload_batch', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  invalidateApiCache();
+  return response.data;
 };
 
 export const getDates = async () => {
@@ -232,8 +251,25 @@ export const getCompareTrend = async (startDate, endDate, metric, filters = null
   return normalizeCompareTrendResponse(payload);
 };
 
+export const getPoiInsight = async (startDate, endDate, previousStartDate, previousEndDate, metrics) => {
+  const params = {
+    startDate,
+    endDate,
+    previousStartDate,
+    previousEndDate,
+    metrics: metrics.join(','),
+  };
+  return cachedGet('/poi/insight', params);
+};
+
 export const deleteData = async (date) => {
   const res = await api.delete('/data', { params: { date } });
+  invalidateApiCache();
+  return res.data;
+};
+
+export const deleteDataBatch = async (dates) => {
+  const res = await api.post('/data/batch_delete', { dates });
   invalidateApiCache();
   return res.data;
 };

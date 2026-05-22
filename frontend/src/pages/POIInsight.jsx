@@ -6,10 +6,9 @@ import 'react-datepicker/dist/react-datepicker.css';
 import ReactEChartsCore from 'echarts-for-react/lib/core';
 import { ArrowDownRight, ArrowUpRight, Minus, Trophy, X } from 'lucide-react';
 import {
-  getCompareAggregate,
-  getCompareTrend,
   getDateStatus,
   getDates,
+  getPoiInsight,
   getPoiProductMetricBreakdown,
 } from '../api';
 import {
@@ -73,7 +72,6 @@ const MODULE_CONFIGS = {
   },
 };
 
-const TREND_LIMIT = 5;
 const RANK_LIMIT = 5;
 const INITIAL_DETAIL_MODAL = {
   isOpen: false,
@@ -345,38 +343,33 @@ function POIInsight() {
       const previousStartDate = addDays(previousEndDate, -(dayCount - 1));
       const { startKey: previousStartKey, endKey: previousEndKey } = formatDateRangeKeys(previousStartDate, previousEndDate);
       const metricKeys = config.metrics.map((metric) => metric.key);
-      const poiFilter = { mode: 'poi', values: [] };
-
       setLoading(true);
       setErrorMessage('');
       try {
-        const [currentAggregate, previousAggregate] = await Promise.all([
-          getCompareAggregate(startKey, endKey, poiFilter, metricKeys),
-          getCompareAggregate(previousStartKey, previousEndKey, poiFilter, metricKeys),
-        ]);
+        const insightPayload = await getPoiInsight(
+          startKey,
+          endKey,
+          previousStartKey,
+          previousEndKey,
+          metricKeys,
+        );
+        const currentAggregate = insightPayload.current || {};
+        const previousAggregate = insightPayload.previous || {};
         const nextCurrentRows = currentAggregate.rows || [];
         const nextPreviousRows = previousAggregate.rows || [];
 
-        const trendEntries = await Promise.all(config.metrics.map(async (metric) => {
-          const topRows = rankRows(nextCurrentRows, metric.key, 'desc').slice(0, TREND_LIMIT);
-          const topKeys = topRows.map((row) => row.group_key);
-          if (topKeys.length === 0) {
-            return [metric.key, { dates: [], rows: [], groupNames: new Map() }];
-          }
-
-          const trendResponse = await getCompareTrend(startKey, endKey, metric.key, {
-            mode: 'poi',
-            values: topKeys,
-          });
+        const trendEntries = config.metrics.map((metric) => {
+          const trendResponse = insightPayload.trends?.[metric.key] || {};
+          const groupNameEntries = Object.entries(trendResponse.group_names || {});
           return [
             metric.key,
             {
               dates: trendResponse.dates || [],
               rows: trendResponse.rows || [],
-              groupNames: new Map(topRows.map((row) => [row.group_key, row.group_name])),
+              groupNames: new Map(groupNameEntries),
             },
           ];
-        }));
+        });
 
         setCurrentRows(nextCurrentRows);
         setPreviousRows(nextPreviousRows);

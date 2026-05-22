@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { UploadCloud, Trash2 } from 'lucide-react';
-import { uploadData, uploadOrderData, deleteCommodityData, deleteOrderData, deleteData, getDateStatus } from '../api';
+import {
+    uploadBatchData,
+    uploadData,
+    uploadOrderData,
+    deleteCommodityData,
+    deleteOrderData,
+    deleteDataBatch,
+    getDateStatus,
+} from '../api';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import { zhCN } from 'date-fns/locale';
 import 'react-datepicker/dist/react-datepicker.css';
@@ -189,34 +197,53 @@ const Upload = () => {
     const handleBatchUpload = async () => {
         setBatchLoading(true);
         setBatchMessage('');
-        let successCount = 0;
-        let failCount = 0;
         const newFiles = [...batchFiles];
+        const uploadItems = [];
 
-        for (let i = 0; i < newFiles.length; i++) {
-            const item = newFiles[i];
+        newFiles.forEach((item, index) => {
             if (!item.info) {
                 item.status = 'fail';
                 item.error = '无法识别文件名与日期';
-                failCount++;
-                continue;
+                return;
             }
+            item.status = 'pending';
+            delete item.error;
+            uploadItems.push({
+                index,
+                file: item.file,
+                date: item.info.date,
+                type: item.info.type,
+            });
+        });
+
+        setBatchFiles([...newFiles]);
+
+        if (uploadItems.length > 0) {
             try {
-                if (item.info.type === 'commodity') {
-                    await uploadData(item.info.date, item.file);
-                } else {
-                    await uploadOrderData(item.info.date, item.file);
-                }
-                item.status = 'success';
-                successCount++;
+                const payload = await uploadBatchData(uploadItems);
+                (payload.results || []).forEach((result) => {
+                    const originalIndex = uploadItems[result.index]?.index;
+                    if (originalIndex === undefined) {
+                        return;
+                    }
+                    newFiles[originalIndex].status = result.status === 'success' ? 'success' : 'fail';
+                    if (result.status !== 'success') {
+                        newFiles[originalIndex].error = result.error || '上传失败';
+                    } else {
+                        delete newFiles[originalIndex].error;
+                    }
+                });
             } catch (err) {
-                item.status = 'fail';
-                item.error = err.response?.data?.detail || err.message;
-                failCount++;
+                uploadItems.forEach((item) => {
+                    newFiles[item.index].status = 'fail';
+                    newFiles[item.index].error = err.response?.data?.detail || err.message;
+                });
             }
-            setBatchFiles([...newFiles]);
         }
 
+        const successCount = newFiles.filter((item) => item.status === 'success').length;
+        const failCount = newFiles.filter((item) => item.status === 'fail').length;
+        setBatchFiles([...newFiles]);
         setBatchLoading(false);
         refreshDateStatus();
         if (failCount === 0 && successCount > 0) {
@@ -585,14 +612,14 @@ const Upload = () => {
 
                                     setBatchDelLoading(true);
                                     setBatchDelMessage('');
-                                    let ok = 0, fail = 0;
-                                    for (const d of selectedDates) {
-                                        try {
-                                            await deleteData(d);
-                                            ok++;
-                                        } catch {
-                                            fail++;
-                                        }
+                                    let ok = 0;
+                                    let fail = 0;
+                                    try {
+                                        const payload = await deleteDataBatch(selectedDates);
+                                        ok = payload.success_count || 0;
+                                        fail = payload.fail_count || 0;
+                                    } catch {
+                                        fail = selectedDates.length;
                                     }
                                     setBatchDelLoading(false);
                                     setSelectedDates([]);

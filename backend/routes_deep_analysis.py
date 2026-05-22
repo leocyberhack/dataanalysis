@@ -3,11 +3,12 @@ from copy import deepcopy
 
 import numpy as np
 from fastapi import APIRouter, Depends
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 import models
 from deps import get_db
-from services import get_product_ids_for_pois, parse_poi_names, safe_divide
+from services import get_data_change_version, get_product_ids_for_pois, parse_poi_names, safe_divide
 
 
 router = APIRouter()
@@ -86,57 +87,46 @@ def get_valid_dual_dates(db):
 def build_cache_key(valid_dates, poi_names):
     scope_key = tuple(sorted(poi_names)) if poi_names else ("__all__",)
     date_key = tuple(date_value.strftime("%Y-%m-%d") for date_value in valid_dates)
-    return scope_key, date_key
+    return get_data_change_version(), scope_key, date_key
 
 
 def compute_daily_records(db, valid_dates, product_ids=None):
     if not valid_dates:
         return []
 
-    buckets = {}
-    query = db.query(models.DailyProductSummary).filter(
+    visitor_count = func.coalesce(models.DailyProductSummary.visitor_count, 0)
+    bounce_rate = func.coalesce(models.DailyProductSummary.bounce_rate, 0)
+    pay_amount_column = func.coalesce(models.DailyProductSummary.pay_amount, 0)
+    query = db.query(
+        models.DailyProductSummary.date.label("date"),
+        func.sum(visitor_count).label("visitor_count"),
+        func.sum(bounce_rate * visitor_count).label("bounce_weighted_sum"),
+        func.sum(visitor_count).label("bounce_weight"),
+        func.sum(models.DailyProductSummary.page_views).label("page_views"),
+        func.sum(models.DailyProductSummary.redeem_amount).label("redeem_amount"),
+        func.sum(models.DailyProductSummary.refund_amount).label("refund_amount"),
+        func.sum(pay_amount_column).label("pay_amount"),
+        func.sum(models.DailyProductSummary.profit).label("profit"),
+    ).filter(
         models.DailyProductSummary.date.in_(valid_dates),
     )
     if product_ids is not None:
         if not product_ids:
             return []
         query = query.filter(models.DailyProductSummary.product_id.in_(product_ids))
-    rows = query.all()
-
-    for row in rows:
-        bucket = buckets.setdefault(row.date, {
-            "date": row.date,
-            "visitor_count": 0.0,
-            "bounce_weighted_sum": 0.0,
-            "bounce_weight": 0.0,
-            "page_views": 0.0,
-            "redeem_amount": 0.0,
-            "refund_amount": 0.0,
-            "pay_amount": 0.0,
-            "profit": 0.0,
-        })
-        visitor_count = float(row.visitor_count or 0)
-        bucket["visitor_count"] += visitor_count
-        bucket["bounce_weighted_sum"] += float(row.bounce_rate or 0) * visitor_count
-        bucket["bounce_weight"] += visitor_count
-        bucket["page_views"] += float(row.page_views or 0)
-        bucket["redeem_amount"] += float(row.redeem_amount or 0)
-        bucket["refund_amount"] += float(row.refund_amount or 0)
-        bucket["pay_amount"] += float(row.pay_amount or 0)
-        bucket["profit"] += float(row.profit or 0)
 
     records = []
-    for bucket in sorted(buckets.values(), key=lambda item: item["date"]):
-        pay_amount = bucket["pay_amount"]
+    for row in query.group_by(models.DailyProductSummary.date).order_by(models.DailyProductSummary.date.asc()).all():
+        pay_amount = float(row.pay_amount or 0)
         records.append({
-            "date": bucket["date"].strftime("%Y-%m-%d"),
-            "visitor_count": bucket["visitor_count"],
-            "bounce_rate": safe_divide(bucket["bounce_weighted_sum"], bucket["bounce_weight"]),
-            "page_views": bucket["page_views"],
-            "redeem_rate_amount": safe_divide(bucket["redeem_amount"], pay_amount, 100),
-            "refund_rate_amount": safe_divide(bucket["refund_amount"], pay_amount, 100),
+            "date": row.date.strftime("%Y-%m-%d"),
+            "visitor_count": float(row.visitor_count or 0),
+            "bounce_rate": safe_divide(row.bounce_weighted_sum, row.bounce_weight),
+            "page_views": float(row.page_views or 0),
+            "redeem_rate_amount": safe_divide(row.redeem_amount, pay_amount, 100),
+            "refund_rate_amount": safe_divide(row.refund_amount, pay_amount, 100),
             "pay_amount": pay_amount,
-            "profit": bucket["profit"],
+            "profit": float(row.profit or 0),
         })
 
     return records
@@ -306,9 +296,10 @@ def get_deep_analysis(poiNames: str = None, db: Session = Depends(get_db)):
         return payload
 
     payload = build_deep_analysis_payload(db, valid_dates, poi_names, product_ids, cache_hit=False)
-    current_date_key = cache_key[1]
+    current_version = cache_key[0]
+    current_date_key = cache_key[2]
     for existing_key in list(DEEP_ANALYSIS_CACHE):
-        if existing_key[1] != current_date_key:
+        if existing_key[0] != current_version or existing_key[2] != current_date_key:
             del DEEP_ANALYSIS_CACHE[existing_key]
     DEEP_ANALYSIS_CACHE[cache_key] = deepcopy(payload)
     return payload

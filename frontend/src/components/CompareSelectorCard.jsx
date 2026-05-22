@@ -1,4 +1,8 @@
-import { memo } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
+
+const VIRTUAL_OPTION_THRESHOLD = 180;
+const VIRTUAL_OPTION_HEIGHT = 42;
+const VIRTUAL_OPTION_OVERSCAN = 8;
 
 function CompareSelectorCard({
   title,
@@ -20,6 +24,49 @@ function CompareSelectorCard({
   clearDisabled = false,
   emptyText,
 }) {
+  const listRef = useRef(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(320);
+  const shouldVirtualize = options.length > VIRTUAL_OPTION_THRESHOLD;
+
+  useEffect(() => {
+    setScrollTop(0);
+    if (listRef.current) {
+      listRef.current.scrollTop = 0;
+      setViewportHeight(listRef.current.clientHeight || 320);
+    }
+  }, [options]);
+
+  useEffect(() => {
+    if (!shouldVirtualize || !listRef.current) {
+      return undefined;
+    }
+
+    const updateViewportHeight = () => {
+      setViewportHeight(listRef.current?.clientHeight || 320);
+    };
+    updateViewportHeight();
+    window.addEventListener('resize', updateViewportHeight);
+    return () => window.removeEventListener('resize', updateViewportHeight);
+  }, [shouldVirtualize]);
+
+  const virtualRange = useMemo(() => {
+    if (!shouldVirtualize) {
+      return { start: 0, end: options.length };
+    }
+
+    const start = Math.max(0, Math.floor(scrollTop / VIRTUAL_OPTION_HEIGHT) - VIRTUAL_OPTION_OVERSCAN);
+    const visibleCount = Math.ceil(viewportHeight / VIRTUAL_OPTION_HEIGHT) + VIRTUAL_OPTION_OVERSCAN * 2;
+    return {
+      start,
+      end: Math.min(options.length, start + visibleCount),
+    };
+  }, [options.length, scrollTop, shouldVirtualize, viewportHeight]);
+
+  const visibleOptions = shouldVirtualize
+    ? options.slice(virtualRange.start, virtualRange.end)
+    : options;
+
   const handleToggleOption = (value) => {
     setSelectedValues((previous) => {
       const nextValues = new Set(previous);
@@ -48,6 +95,25 @@ function CompareSelectorCard({
 
   const handleClear = () => {
     setSelectedValues([]);
+  };
+
+  const renderOption = (option, extraStyle = undefined) => {
+    const checked = selectedValueSet.has(option.value);
+
+    return (
+      <label
+        className={`compare-checkbox-item ${checked ? 'is-selected' : ''}`}
+        key={option.value}
+        style={extraStyle}
+      >
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={() => handleToggleOption(option.value)}
+        />
+        <span className="compare-checkbox-label" title={option.label}>{option.label}</span>
+      </label>
+    );
   };
 
   return (
@@ -82,24 +148,40 @@ function CompareSelectorCard({
         <span>{masterCheckText}</span>
       </label>
 
-      <div className="compare-checkbox-list">
+      <div
+        className="compare-checkbox-list"
+        ref={listRef}
+        onScroll={shouldVirtualize ? (event) => setScrollTop(event.currentTarget.scrollTop) : undefined}
+        style={shouldVirtualize ? {
+          display: 'block',
+          position: 'relative',
+          paddingRight: '6px',
+        } : undefined}
+      >
         {filteredCount === 0 ? (
           <div className="compare-selector-empty">{emptyText}</div>
+        ) : shouldVirtualize ? (
+          <div style={{ height: `${options.length * VIRTUAL_OPTION_HEIGHT}px`, position: 'relative' }}>
+            <div
+              style={{
+                position: 'absolute',
+                left: 0,
+                right: 0,
+                top: `${virtualRange.start * VIRTUAL_OPTION_HEIGHT}px`,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+              }}
+            >
+              {visibleOptions.map((option) => renderOption(option, {
+                height: `${VIRTUAL_OPTION_HEIGHT - 8}px`,
+                minHeight: `${VIRTUAL_OPTION_HEIGHT - 8}px`,
+                margin: 0,
+              }))}
+            </div>
+          </div>
         ) : (
-          options.map((option) => {
-            const checked = selectedValueSet.has(option.value);
-
-            return (
-              <label className={`compare-checkbox-item ${checked ? 'is-selected' : ''}`} key={option.value}>
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={() => handleToggleOption(option.value)}
-                />
-                <span className="compare-checkbox-label" title={option.label}>{option.label}</span>
-              </label>
-            );
-          })
+          visibleOptions.map((option) => renderOption(option))
         )}
       </div>
     </div>

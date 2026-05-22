@@ -2,6 +2,7 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 import models
 from database import engine
@@ -9,6 +10,7 @@ from deps import get_db
 from routes_compare import (
     get_compare_aggregate,
     get_compare_trend,
+    get_poi_insight,
     router as compare_router,
 )
 from routes_deep_analysis import (
@@ -39,10 +41,12 @@ from routes_plans import (
     update_plan,
 )
 from routes_upload import (
+    delete_data_batch,
     delete_commodity_data,
     delete_data,
     delete_order_data,
     router as upload_router,
+    upload_batch,
     upload_file,
     upload_orders,
 )
@@ -88,6 +92,8 @@ ensure_daily_product_summaries()
 
 app = FastAPI()
 
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -96,6 +102,23 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def add_cache_headers(request, call_next):
+    response = await call_next(request)
+    cache_ttl_by_path = {
+        "/dates": 30,
+        "/date_status": 30,
+        "/products": 60,
+        "/pois": 60,
+        "/plans": 30,
+    }
+    ttl = cache_ttl_by_path.get(request.url.path)
+    if request.method == "GET" and ttl and response.status_code == 200:
+        response.headers.setdefault("Cache-Control", f"private, max-age={ttl}")
+        response.headers.setdefault("Vary", "Accept-Encoding")
+    return response
 
 app.include_router(upload_router)
 app.include_router(query_router)
@@ -128,6 +151,7 @@ __all__ = [
     "create_plan",
     "delete_commodity_data",
     "delete_data",
+    "delete_data_batch",
     "delete_order_data",
     "delete_pending_order",
     "delete_plan",
@@ -135,6 +159,7 @@ __all__ = [
     "ensure_daily_summaries",
     "get_compare_aggregate",
     "get_compare_trend",
+    "get_poi_insight",
     "get_data",
     "get_deep_analysis",
     "get_date_status",
@@ -159,6 +184,7 @@ __all__ = [
     "safe_divide",
     "update_pending_order",
     "update_plan",
+    "upload_batch",
     "upload_file",
     "upload_orders",
 ]

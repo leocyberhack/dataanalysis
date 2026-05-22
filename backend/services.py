@@ -1,6 +1,7 @@
 import hashlib
 import os
 import re
+import threading
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -11,6 +12,9 @@ from sqlalchemy import func, text
 
 import models
 from database import engine, SessionLocal
+
+
+DATA_CHANGE_VERSION = 0
 
 
 COL_MAP = {
@@ -109,6 +113,13 @@ def _run_migrations():
             conn.commit()
 
         try:
+            conn.execute(text("SELECT 1 FROM product_poi_map LIMIT 1"))
+        except Exception:
+            conn.rollback()
+            models.Base.metadata.tables["product_poi_map"].create(bind=engine)
+            conn.commit()
+
+        try:
             conn.execute(text("SELECT 1 FROM plans LIMIT 1"))
         except Exception:
             conn.rollback()
@@ -127,6 +138,7 @@ def _run_migrations():
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_pending_orders_status_date_id ON pending_orders (status, date, id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_product_summaries_date_product_id ON daily_product_summaries (date, product_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_product_summaries_product_id_date ON daily_product_summaries (product_id, date)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_product_poi_map_poi_name_product_id ON product_poi_map (poi_name, product_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_plans_metric ON plans (metric)"))
         conn.commit()
 
@@ -266,14 +278,109 @@ def build_product_poi_map(products, poi_rules=None):
     }
 
 
+def get_poi_rules_signature():
+    poi_config_path = get_poi_config_path()
+    try:
+        stat = poi_config_path.stat()
+        return str(poi_config_path), stat.st_mtime_ns, stat.st_size
+    except OSError:
+        return str(poi_config_path), 0, 0
+
+
+class ProductPoiIndex:
+    _CACHE_TTL = 60
+
+    def __init__(self):
+        self._rules = None
+        self._rules_signature = None
+        self._loaded_at = 0
+
+    def clear(self):
+        self._rules = None
+        self._rules_signature = None
+        self._loaded_at = 0
+
+    def get_rules(self):
+        signature = get_poi_rules_signature()
+        is_stale = (
+            self._rules is None
+            or self._rules_signature != signature
+            or (time.monotonic() - self._loaded_at) > self._CACHE_TTL
+        )
+        if is_stale:
+            self._rules = load_poi_rules()
+            self._rules_signature = signature
+            self._loaded_at = time.monotonic()
+        return self._rules
+
+
+POI_INDEX = ProductPoiIndex()
+_PRODUCT_POI_MAP_SIGNATURE = None
+_PRODUCT_POI_MAP_LOCK = threading.Lock()
+
+
+def refresh_product_poi_map(db, rules_signature=None):
+    global _PRODUCT_POI_MAP_SIGNATURE
+
+    rules = POI_INDEX.get_rules()
+    products = [
+        {"id": product_id, "name": product_name}
+        for product_id, product_name in db.query(models.Product.id, models.Product.name).all()
+    ]
+
+    mappings = []
+    for product in products:
+        poi_name = match_product_to_poi(product.get("name"), rules)
+        if poi_name:
+            mappings.append({
+                "product_id": product.get("id"),
+                "poi_name": poi_name,
+            })
+
+    db.query(models.ProductPoiMap).delete(synchronize_session=False)
+    if mappings:
+        db.bulk_insert_mappings(models.ProductPoiMap, mappings)
+
+    _PRODUCT_POI_MAP_SIGNATURE = rules_signature or get_poi_rules_signature()
+
+
+def ensure_product_poi_map(db):
+    global _PRODUCT_POI_MAP_SIGNATURE
+
+    rules_signature = get_poi_rules_signature()
+    if _PRODUCT_POI_MAP_SIGNATURE == rules_signature:
+        return
+
+    with _PRODUCT_POI_MAP_LOCK:
+        if _PRODUCT_POI_MAP_SIGNATURE == rules_signature:
+            return
+        refresh_product_poi_map(db, rules_signature)
+        db.commit()
+
+
+def get_poi_product_ids_query(db, poi_names):
+    ensure_product_poi_map(db)
+    query = db.query(models.ProductPoiMap.product_id)
+    if poi_names:
+        query = query.filter(models.ProductPoiMap.poi_name.in_(poi_names))
+    return query
+
+
 def get_pois(db, start_date=None, end_date=None):
-    products = PRODUCT_INDEX.get_products(db, start_date, end_date) if start_date and end_date else PRODUCT_INDEX.get_products(db)
-    poi_mapping = build_product_poi_map(products)
-    available_pois = set(poi_mapping["poi_to_product_ids"])
+    ensure_product_poi_map(db)
+    query = db.query(models.ProductPoiMap.poi_name).distinct()
+    if start_date and end_date:
+        has_data_in_range = db.query(models.DailyProductSummary.product_id).filter(
+            models.DailyProductSummary.product_id == models.ProductPoiMap.product_id,
+            models.DailyProductSummary.date >= start_date,
+            models.DailyProductSummary.date <= end_date,
+        ).exists()
+        query = query.filter(has_data_in_range)
+    available_pois = {poi_name for poi_name, in query.all()}
 
     return [
         {"id": rule["name"], "name": rule["name"]}
-        for rule in poi_mapping["rules"]
+        for rule in POI_INDEX.get_rules()
         if rule["name"] in available_pois
     ]
 
@@ -282,14 +389,9 @@ def get_product_ids_for_pois(db, poi_names):
     if not poi_names:
         return []
 
-    poi_name_set = set(poi_names)
-    products = PRODUCT_INDEX.get_products(db)
-    poi_mapping = build_product_poi_map(products)
-
     return [
         product_id
-        for product_id, poi_name in poi_mapping["product_to_poi"].items()
-        if poi_name in poi_name_set
+        for product_id, in get_poi_product_ids_query(db, list(poi_names)).all()
     ]
 
 
@@ -360,62 +462,59 @@ class ProductDateIndex:
     _CACHE_TTL = 60
 
     def __init__(self):
-        self._index = None
         self._all_products = None
+        self._range_products = {}
         self._loaded_at = 0
 
     def clear(self):
-        self._index = None
         self._all_products = None
+        self._range_products = {}
         self._loaded_at = 0
 
     def _is_stale(self):
-        return self._index is None or (time.monotonic() - self._loaded_at) > self._CACHE_TTL
+        return self._all_products is None or (time.monotonic() - self._loaded_at) > self._CACHE_TTL
+
+    def _load_all_products(self, db):
+        self._all_products = sorted([
+            {"id": product_id, "name": product_name}
+            for product_id, product_name in db.query(models.Product.id, models.Product.name).all()
+        ], key=lambda item: item["name"])
+        self._range_products = {}
+        self._loaded_at = time.monotonic()
 
     def get_products(self, db, start_date=None, end_date=None):
         if self._is_stale():
-            results = db.query(
-                models.DailyProductSummary.product_id,
-                models.Product.name,
-                models.DailyProductSummary.date,
-            ).join(
-                models.Product,
-                models.DailyProductSummary.product_id == models.Product.id,
-            ).all()
-
-            products_map = {}
-            for pid, pname, pdt in results:
-                try:
-                    pdt_val = pdt.strftime("%Y-%m-%d")
-                except AttributeError:
-                    pdt_val = str(pdt)
-                if pid not in products_map:
-                    products_map[pid] = {"name": pname, "dates": set()}
-                products_map[pid]["dates"].add(pdt_val)
-
-            self._index = sorted([
-                (pid, data["name"], data["dates"])
-                for pid, data in products_map.items()
-            ], key=lambda x: x[1])
-
-            self._all_products = sorted([
-                {"id": p.id, "name": p.name}
-                for p in db.query(models.Product).all()
-            ], key=lambda x: x["name"])
-
-            self._loaded_at = time.monotonic()
+            self._load_all_products(db)
 
         if not start_date or not end_date:
-            return self._all_products
+            return list(self._all_products)
 
         start_str = start_date.strftime("%Y-%m-%d") if hasattr(start_date, "strftime") else str(start_date)
         end_str = end_date.strftime("%Y-%m-%d") if hasattr(end_date, "strftime") else str(end_date)
+        cache_key = (start_str, end_str)
+        if cache_key not in self._range_products:
+            rows = db.query(
+                models.Product.id,
+                models.Product.name,
+            ).join(
+                models.DailyProductSummary,
+                models.DailyProductSummary.product_id == models.Product.id,
+            ).filter(
+                models.DailyProductSummary.date >= start_date,
+                models.DailyProductSummary.date <= end_date,
+            ).group_by(
+                models.Product.id,
+                models.Product.name,
+            ).order_by(
+                models.Product.name.asc(),
+            ).all()
 
-        res = []
-        for pid, pname, dates in self._index:
-            if any(start_str <= d <= end_str for d in dates):
-                res.append({"id": pid, "name": pname})
-        return res
+            self._range_products[cache_key] = [
+                {"id": product_id, "name": product_name}
+                for product_id, product_name in rows
+            ]
+
+        return list(self._range_products[cache_key])
 
 
 PRODUCT_INDEX = ProductDateIndex()
@@ -485,7 +584,15 @@ def build_order_product_id(product_name):
 
 
 def clear_runtime_caches():
+    global _PRODUCT_POI_MAP_SIGNATURE, DATA_CHANGE_VERSION
+    DATA_CHANGE_VERSION += 1
     PRODUCT_INDEX.clear()
+    POI_INDEX.clear()
+    _PRODUCT_POI_MAP_SIGNATURE = None
+
+
+def get_data_change_version():
+    return DATA_CHANGE_VERSION
 
 
 def _create_compare_bucket(sum_metrics):
@@ -532,6 +639,61 @@ def _build_compare_group_order(group_by, poi_rules, group_name):
     return (group_name,)
 
 
+def _empty_compare_dataset(sum_metrics, selected_range_day_count, group_by, poi_rules, selected_metrics):
+    return {
+        "groups": {},
+        "overall_bucket": _create_compare_bucket(sum_metrics),
+        "global_bucket": _create_compare_bucket(sum_metrics),
+        "global_daily_buckets": {},
+        "selected_range_day_count": selected_range_day_count,
+        "sorted_dates": [],
+        "group_by": group_by,
+        "poi_rules": poi_rules,
+        "selected_metrics": selected_metrics,
+    }
+
+
+def _build_compare_aggregate_columns(sum_metrics, selected_metrics):
+    aggregate_columns = [
+        func.sum(getattr(models.DailyProductSummary, metric)).label(f"sum__{metric}")
+        for metric in sum_metrics
+    ]
+
+    for metric in selected_metrics:
+        weight_field = COMPARE_WEIGHT_FIELDS.get(metric)
+        if not weight_field:
+            continue
+
+        metric_column = func.coalesce(getattr(models.DailyProductSummary, metric), 0)
+        weight_column = func.coalesce(getattr(models.DailyProductSummary, weight_field), 0)
+        aggregate_columns.extend([
+            func.sum(metric_column * weight_column).label(f"weighted_numerator__{metric}"),
+            func.sum(weight_column).label(f"weighted_denominator__{metric}"),
+        ])
+
+    return aggregate_columns
+
+
+def _accumulate_compare_aggregate_row(bucket, row, sum_metrics, selected_metrics):
+    row_values = row._mapping
+    for metric in sum_metrics:
+        bucket["sum_values"][metric] += float(row_values.get(f"sum__{metric}") or 0)
+
+    for metric in selected_metrics:
+        weight_field = COMPARE_WEIGHT_FIELDS.get(metric)
+        if not weight_field:
+            continue
+
+        bucket["weighted_numerators"][metric] = (
+            bucket["weighted_numerators"].get(metric, 0.0)
+            + float(row_values.get(f"weighted_numerator__{metric}") or 0)
+        )
+        bucket["weighted_denominators"][metric] = (
+            bucket["weighted_denominators"].get(metric, 0.0)
+            + float(row_values.get(f"weighted_denominator__{metric}") or 0)
+        )
+
+
 def prepare_compare_dataset(
     db,
     start_date,
@@ -561,82 +723,82 @@ def prepare_compare_dataset(
     needs_share_metrics = any(metric in COMPARE_SHARE_METRICS for metric in selected_metrics)
 
     poi_rules = []
-    product_to_poi = {}
     query_product_ids = None
     if group_by == "poi":
-        poi_rules = load_poi_rules()
-        all_products = PRODUCT_INDEX.get_products(db)
-        poi_mapping = build_product_poi_map(all_products, poi_rules)
-        product_to_poi = poi_mapping["product_to_poi"]
-
+        ensure_product_poi_map(db)
+        poi_rules = POI_INDEX.get_rules()
         if parsed_poi_names:
-            query_product_ids = [
-                product_id
-                for product_id, poi_name in product_to_poi.items()
-                if poi_name in set(parsed_poi_names)
-            ]
-            if not query_product_ids:
-                return {
-                    "groups": {},
-                    "overall_bucket": _create_compare_bucket(sum_metrics),
-                    "global_bucket": _create_compare_bucket(sum_metrics),
-                    "global_daily_buckets": {},
-                    "selected_range_day_count": selected_range_day_count,
-                    "sorted_dates": [],
-                    "group_by": group_by,
-                    "poi_rules": poi_rules,
-                    "selected_metrics": selected_metrics,
-                }
+            has_matching_pois = db.query(models.ProductPoiMap.product_id).filter(
+                models.ProductPoiMap.poi_name.in_(parsed_poi_names),
+            ).first()
+            if not has_matching_pois:
+                return _empty_compare_dataset(sum_metrics, selected_range_day_count, group_by, poi_rules, selected_metrics)
     else:
         if parsed_poi_names:
-            poi_rules = load_poi_rules()
-            all_products = PRODUCT_INDEX.get_products(db)
-            poi_mapping = build_product_poi_map(all_products, poi_rules)
-            selected_pois = set(parsed_poi_names)
-            query_product_ids = [
-                product_id
-                for product_id, poi_name in poi_mapping["product_to_poi"].items()
-                if poi_name in selected_pois
-            ]
+            query_product_ids = get_product_ids_for_pois(db, parsed_poi_names)
             if not query_product_ids:
-                return {
-                    "groups": {},
-                    "overall_bucket": _create_compare_bucket(sum_metrics),
-                    "global_bucket": _create_compare_bucket(sum_metrics),
-                    "global_daily_buckets": {},
-                    "selected_range_day_count": selected_range_day_count,
-                    "sorted_dates": [],
-                    "group_by": group_by,
-                    "poi_rules": poi_rules,
-                    "selected_metrics": selected_metrics,
-                }
+                return _empty_compare_dataset(sum_metrics, selected_range_day_count, group_by, poi_rules, selected_metrics)
         elif parsed_product_ids:
             query_product_ids = parsed_product_ids
 
-    query = db.query(
-        models.DailyProductSummary,
-        models.Product.name.label("product_name"),
-    ).join(
-        models.Product,
-        models.DailyProductSummary.product_id == models.Product.id,
-    ).filter(
-        models.DailyProductSummary.date >= start_date,
-        models.DailyProductSummary.date <= end_date,
-    )
-
-    if query_product_ids is not None:
-        query = apply_product_filter(query, query_product_ids, models.DailyProductSummary)
+    if query_product_ids is not None and not query_product_ids:
+        return _empty_compare_dataset(sum_metrics, selected_range_day_count, group_by, poi_rules, selected_metrics)
 
     groups = {}
     overall_bucket = _create_compare_bucket(sum_metrics)
     global_bucket = _create_compare_bucket(sum_metrics)
     global_daily_buckets = {}
     distinct_dates = set()
+    aggregate_columns = _build_compare_aggregate_columns(sum_metrics, selected_metrics)
 
     if needs_share_metrics:
         global_query = db.query(
-            models.DailyProductSummary,
-            models.Product.name.label("product_name"),
+            models.DailyProductSummary.date.label("date"),
+            *aggregate_columns,
+        ).filter(
+            models.DailyProductSummary.date >= start_date,
+            models.DailyProductSummary.date <= end_date,
+        )
+
+        if group_by == "poi":
+            global_query = global_query.join(
+                models.ProductPoiMap,
+                models.DailyProductSummary.product_id == models.ProductPoiMap.product_id,
+            )
+
+        for global_row in global_query.group_by(models.DailyProductSummary.date).all():
+            daily_global_bucket = global_daily_buckets.setdefault(
+                global_row.date,
+                _create_compare_bucket(sum_metrics),
+            )
+            _accumulate_compare_aggregate_row(global_bucket, global_row, sum_metrics, selected_metrics)
+            _accumulate_compare_aggregate_row(daily_global_bucket, global_row, sum_metrics, selected_metrics)
+
+    if group_by == "poi":
+        query = db.query(
+            models.ProductPoiMap.poi_name.label("group_key"),
+            models.ProductPoiMap.poi_name.label("group_name"),
+            models.DailyProductSummary.date.label("date"),
+            *aggregate_columns,
+        ).join(
+            models.ProductPoiMap,
+            models.DailyProductSummary.product_id == models.ProductPoiMap.product_id,
+        ).filter(
+            models.DailyProductSummary.date >= start_date,
+            models.DailyProductSummary.date <= end_date,
+        )
+        if parsed_poi_names:
+            query = query.filter(models.ProductPoiMap.poi_name.in_(parsed_poi_names))
+        query = query.group_by(
+            models.ProductPoiMap.poi_name,
+            models.DailyProductSummary.date,
+        )
+    else:
+        query = db.query(
+            models.DailyProductSummary.product_id.label("group_key"),
+            models.Product.name.label("group_name"),
+            models.DailyProductSummary.date.label("date"),
+            *aggregate_columns,
         ).join(
             models.Product,
             models.DailyProductSummary.product_id == models.Product.id,
@@ -644,54 +806,33 @@ def prepare_compare_dataset(
             models.DailyProductSummary.date >= start_date,
             models.DailyProductSummary.date <= end_date,
         )
+        if query_product_ids is not None:
+            query = apply_product_filter(query, query_product_ids, models.DailyProductSummary)
+        query = query.group_by(
+            models.DailyProductSummary.product_id,
+            models.Product.name,
+            models.DailyProductSummary.date,
+        )
 
-        if group_by == "poi":
-            mapped_product_ids = list(product_to_poi)
-            if mapped_product_ids:
-                global_query = apply_product_filter(global_query, mapped_product_ids, models.DailyProductSummary)
-            else:
-                global_query = None
-
-        if global_query is not None:
-            for daily_row, _ in global_query.all():
-                if group_by == "poi" and daily_row.product_id not in product_to_poi:
-                    continue
-
-                daily_global_bucket = global_daily_buckets.setdefault(
-                    daily_row.date,
-                    _create_compare_bucket(sum_metrics),
-                )
-                _accumulate_compare_bucket(global_bucket, daily_row, sum_metrics, selected_metrics)
-                _accumulate_compare_bucket(daily_global_bucket, daily_row, sum_metrics, selected_metrics)
-
-    for daily_row, product_name in query.all():
-        if group_by == "poi":
-            group_name = product_to_poi.get(daily_row.product_id)
-            if not group_name:
-                continue
-            group_key = group_name
-        else:
-            group_key = daily_row.product_id
-            group_name = product_name
-
-        distinct_dates.add(daily_row.date)
-        group_entry = groups.setdefault(group_key, {
-            "group_key": group_key,
-            "group_name": group_name,
+    for row in query.all():
+        distinct_dates.add(row.date)
+        group_entry = groups.setdefault(row.group_key, {
+            "group_key": row.group_key,
+            "group_name": row.group_name,
             "days": set(),
             "bucket": _create_compare_bucket(sum_metrics),
             "daily": {},
         })
-        group_entry["days"].add(daily_row.date)
+        group_entry["days"].add(row.date)
 
         daily_bucket = group_entry["daily"].setdefault(
-            daily_row.date,
+            row.date,
             _create_compare_bucket(sum_metrics),
         )
 
-        _accumulate_compare_bucket(group_entry["bucket"], daily_row, sum_metrics, selected_metrics)
-        _accumulate_compare_bucket(daily_bucket, daily_row, sum_metrics, selected_metrics)
-        _accumulate_compare_bucket(overall_bucket, daily_row, sum_metrics, selected_metrics)
+        _accumulate_compare_aggregate_row(group_entry["bucket"], row, sum_metrics, selected_metrics)
+        _accumulate_compare_aggregate_row(daily_bucket, row, sum_metrics, selected_metrics)
+        _accumulate_compare_aggregate_row(overall_bucket, row, sum_metrics, selected_metrics)
 
     return {
         "groups": groups,
@@ -791,6 +932,80 @@ def build_compare_aggregate_payload(
     }
 
 
+def compute_compare_overall_metric(
+    db,
+    start_date,
+    end_date,
+    metric,
+    product_ids=None,
+    poi_names=None,
+    poi_scope=False,
+):
+    selected_metric = parse_compare_metrics(metric)[0]
+    parsed_poi_names = list(poi_names or [])
+    parsed_product_ids = list(product_ids or [])
+    if parsed_poi_names and parsed_product_ids:
+        raise HTTPException(status_code=400, detail="Product and POI filters cannot be combined")
+
+    if parsed_poi_names or poi_scope:
+        ensure_product_poi_map(db)
+        if parsed_poi_names:
+            has_matching_pois = db.query(models.ProductPoiMap.product_id).filter(
+                models.ProductPoiMap.poi_name.in_(parsed_poi_names),
+            ).first()
+            if not has_matching_pois:
+                return 0.0
+    elif product_ids is not None and not parsed_product_ids:
+        return 0.0
+
+    sum_metrics = list(dict.fromkeys(get_compare_metric_sum_fields(selected_metric)))
+    aggregate_columns = _build_compare_aggregate_columns(sum_metrics, [selected_metric])
+
+    global_bucket = _create_compare_bucket(sum_metrics)
+    if selected_metric in COMPARE_SHARE_METRICS:
+        global_query = db.query(*aggregate_columns).filter(
+            models.DailyProductSummary.date >= start_date,
+            models.DailyProductSummary.date <= end_date,
+        )
+        if parsed_poi_names or poi_scope:
+            global_query = global_query.join(
+                models.ProductPoiMap,
+                models.DailyProductSummary.product_id == models.ProductPoiMap.product_id,
+            )
+        global_row = global_query.first()
+        if global_row is not None:
+            _accumulate_compare_aggregate_row(global_bucket, global_row, sum_metrics, [selected_metric])
+
+    query = db.query(*aggregate_columns).filter(
+        models.DailyProductSummary.date >= start_date,
+        models.DailyProductSummary.date <= end_date,
+    )
+    if parsed_poi_names or poi_scope:
+        query = query.join(
+            models.ProductPoiMap,
+            models.DailyProductSummary.product_id == models.ProductPoiMap.product_id,
+        )
+        if parsed_poi_names:
+            query = query.filter(models.ProductPoiMap.poi_name.in_(parsed_poi_names))
+    elif product_ids is not None:
+        query = apply_product_filter(query, parsed_product_ids, models.DailyProductSummary)
+
+    row = query.first()
+    if row is None:
+        return 0.0
+
+    bucket = _create_compare_bucket(sum_metrics)
+    _accumulate_compare_aggregate_row(bucket, row, sum_metrics, [selected_metric])
+    avg_values = _compute_compare_avg_values(bucket, [selected_metric])
+    denominator_values = global_bucket["sum_values"] if selected_metric in COMPARE_SHARE_METRICS else None
+    return compute_display_metric_value(
+        selected_metric,
+        bucket["sum_values"],
+        avg_values,
+        denominator_values,
+    )
+
+
 def build_compare_trend_payload(
     db,
     start_date,
@@ -800,7 +1015,7 @@ def build_compare_trend_payload(
     product_ids=None,
     poi_names=None,
 ):
-    dataset = prepare_compare_dataset(
+    return build_compare_trends_payload(
         db=db,
         start_date=start_date,
         end_date=end_date,
@@ -808,43 +1023,74 @@ def build_compare_trend_payload(
         group_by=group_by,
         product_ids=product_ids,
         poi_names=poi_names,
+    )[metric]
+
+
+def build_compare_trends_payload(
+    db,
+    start_date,
+    end_date,
+    selected_metrics,
+    group_by="product",
+    product_ids=None,
+    poi_names=None,
+    group_keys_by_metric=None,
+):
+    dataset = prepare_compare_dataset(
+        db=db,
+        start_date=start_date,
+        end_date=end_date,
+        selected_metrics=selected_metrics,
+        group_by=group_by,
+        product_ids=product_ids,
+        poi_names=poi_names,
     )
 
-    trend_rows = []
     sorted_groups = sorted(
         dataset["groups"].values(),
         key=lambda group: _build_compare_group_order(dataset["group_by"], dataset["poi_rules"], group["group_name"]),
     )
+    trend_payloads = {}
 
-    for group_entry in sorted_groups:
-        for target_date in sorted(group_entry["daily"]):
-            daily_bucket = group_entry["daily"][target_date]
-            daily_avg_values = _compute_compare_avg_values(daily_bucket, [metric])
-            daily_global_bucket = dataset["global_daily_buckets"].get(target_date)
-            daily_denominator_values = daily_global_bucket["sum_values"] if daily_global_bucket else {}
-            row = {
-                "group_key": group_entry["group_key"],
-                "group_name": group_entry["group_name"],
-                "date": target_date.strftime("%Y-%m-%d"),
-                "value": compute_display_metric_value(
-                    metric,
-                    daily_bucket["sum_values"],
-                    daily_avg_values,
-                    daily_denominator_values,
-                ),
-            }
-            if dataset["group_by"] == "product":
-                row["product_id"] = group_entry["group_key"]
-                row["product_name"] = group_entry["group_name"]
-            else:
-                row["poi_name"] = group_entry["group_name"]
-            trend_rows.append(row)
+    for metric in selected_metrics:
+        allowed_group_keys = None
+        if group_keys_by_metric and group_keys_by_metric.get(metric):
+            allowed_group_keys = set(group_keys_by_metric[metric])
 
-    return {
-        "dates": [target_date.strftime("%Y-%m-%d") for target_date in dataset["sorted_dates"]],
-        "rows": trend_rows,
-        "group_by": dataset["group_by"],
-    }
+        trend_rows = []
+        for group_entry in sorted_groups:
+            if allowed_group_keys is not None and group_entry["group_key"] not in allowed_group_keys:
+                continue
+            for target_date in sorted(group_entry["daily"]):
+                daily_bucket = group_entry["daily"][target_date]
+                daily_avg_values = _compute_compare_avg_values(daily_bucket, [metric])
+                daily_global_bucket = dataset["global_daily_buckets"].get(target_date)
+                daily_denominator_values = daily_global_bucket["sum_values"] if daily_global_bucket else {}
+                row = {
+                    "group_key": group_entry["group_key"],
+                    "group_name": group_entry["group_name"],
+                    "date": target_date.strftime("%Y-%m-%d"),
+                    "value": compute_display_metric_value(
+                        metric,
+                        daily_bucket["sum_values"],
+                        daily_avg_values,
+                        daily_denominator_values,
+                    ),
+                }
+                if dataset["group_by"] == "product":
+                    row["product_id"] = group_entry["group_key"]
+                    row["product_name"] = group_entry["group_name"]
+                else:
+                    row["poi_name"] = group_entry["group_name"]
+                trend_rows.append(row)
+
+        trend_payloads[metric] = {
+            "dates": [target_date.strftime("%Y-%m-%d") for target_date in dataset["sorted_dates"]],
+            "rows": trend_rows,
+            "group_by": dataset["group_by"],
+        }
+
+    return trend_payloads
 
 
 def refresh_daily_product_summary(db, target_date):
@@ -995,45 +1241,37 @@ def build_product_metric_ranking(db, start_date, end_date, metric, limit=5):
 
 
 def build_poi_metric_ranking(db, start_date, end_date, metric, limit=5):
+    ensure_product_poi_map(db)
     metric_column = getattr(models.DailyProductSummary, metric)
     metric_sum = func.sum(metric_column)
     rows = db.query(
-        models.DailyProductSummary.product_id,
-        models.Product.name.label("product_name"),
+        models.ProductPoiMap.poi_name,
         metric_sum.label("value"),
     ).join(
-        models.Product,
-        models.DailyProductSummary.product_id == models.Product.id,
+        models.ProductPoiMap,
+        models.DailyProductSummary.product_id == models.ProductPoiMap.product_id,
     ).filter(
         models.DailyProductSummary.date >= start_date,
         models.DailyProductSummary.date <= end_date,
     ).group_by(
-        models.DailyProductSummary.product_id,
-        models.Product.name,
+        models.ProductPoiMap.poi_name,
     ).having(
         metric_sum > 0
-    ).all()
+    ).order_by(
+        metric_sum.desc()
+    ).limit(limit).all()
 
-    poi_rules = load_poi_rules()
-    poi_totals = defaultdict(float)
-    for _, product_name, value in rows:
-        poi_name = match_product_to_poi(product_name, poi_rules)
-        if poi_name:
-            poi_totals[poi_name] += float(value or 0)
-
-    ranked_pois = sorted(
+    return _rank_items(
         [
             {
                 "id": poi_name,
                 "name": poi_name,
                 "value": value,
             }
-            for poi_name, value in poi_totals.items()
+            for poi_name, value in rows
         ],
-        key=lambda item: item["value"],
-        reverse=True,
+        limit,
     )
-    return _rank_items(ranked_pois, limit)
 
 
 def build_summary_rankings(db, start_date, end_date, limit=5):

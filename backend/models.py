@@ -12,6 +12,16 @@ class Product(Base):
     name = Column(String, index=True)
 
 
+class ProductPoiMap(Base):
+    __tablename__ = "product_poi_map"
+    __table_args__ = (
+        Index("ix_product_poi_map_poi_name_product_id", "poi_name", "product_id"),
+    )
+
+    product_id = Column(String, ForeignKey("products.id"), primary_key=True, index=True)
+    poi_name = Column(String, index=True)
+
+
 class DailyData(Base):
     __tablename__ = "daily_data"
     __table_args__ = (

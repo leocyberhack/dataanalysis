@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 import models
 from deps import get_db
 from schemas import PlanCreateRequest
-from services import build_compare_aggregate_payload, parse_compare_metrics
+from services import compute_compare_overall_metric, parse_compare_metrics
 
 
 router = APIRouter()
@@ -88,15 +88,15 @@ def serialize_plan(plan, db):
     for month in months:
         target_value = month_targets.get(month, 0)
         start_date, end_date = get_month_range(month)
-        aggregate = build_compare_aggregate_payload(
+        actual_value = compute_compare_overall_metric(
             db=db,
             start_date=start_date,
             end_date=end_date,
-            selected_metrics=[plan.metric],
-            group_by="poi",
+            metric=plan.metric,
             poi_names=poi_names if plan.poi_mode == "selected" else None,
+            poi_scope=plan.poi_mode != "selected",
         )
-        actual_value = float(aggregate["overall_totals"].get(plan.metric) or 0)
+        actual_value = float(actual_value or 0)
         percentage = (actual_value / target_value * 100) if target_value > 0 else 0
         progress.append({
             "month": month,

@@ -18,25 +18,53 @@ router = APIRouter()
 
 @router.get("/pending_orders")
 def get_pending_orders(db: Session = Depends(get_db)):
-    orders = db.query(models.PendingOrder).filter(
+    orders = db.query(
+        models.PendingOrder.id,
+        models.PendingOrder.date,
+        models.PendingOrder.order_number,
+        models.PendingOrder.order_id,
+        models.PendingOrder.product_name,
+        models.PendingOrder.specification,
+        models.PendingOrder.quantity,
+        models.PendingOrder.unit_price,
+        models.PendingOrder.total_amount,
+        models.PendingOrder.commission,
+        models.PendingOrder.profit,
+        models.PendingOrder.salesperson,
+        models.PendingOrder.status,
+    ).filter(
         models.PendingOrder.status == "pending"
     ).order_by(models.PendingOrder.date.desc(), models.PendingOrder.id.desc()).all()
 
     return [{
-        "id": o.id,
-        "date": o.date.strftime("%Y-%m-%d"),
-        "order_number": o.order_number,
-        "order_id": o.order_id,
-        "product_name": o.product_name,
-        "specification": o.specification,
-        "quantity": o.quantity,
-        "unit_price": o.unit_price,
-        "total_amount": o.total_amount,
-        "commission": o.commission,
-        "profit": o.profit,
-        "salesperson": o.salesperson or "",
-        "status": o.status
-    } for o in orders]
+        "id": order_id,
+        "date": order_date.strftime("%Y-%m-%d"),
+        "order_number": order_number,
+        "order_id": external_order_id,
+        "product_name": product_name,
+        "specification": specification,
+        "quantity": quantity,
+        "unit_price": unit_price,
+        "total_amount": total_amount,
+        "commission": commission,
+        "profit": profit,
+        "salesperson": salesperson or "",
+        "status": status,
+    } for (
+        order_id,
+        order_date,
+        order_number,
+        external_order_id,
+        product_name,
+        specification,
+        quantity,
+        unit_price,
+        total_amount,
+        commission,
+        profit,
+        salesperson,
+        status,
+    ) in orders]
 
 
 @router.post("/approve_order/{order_id}")

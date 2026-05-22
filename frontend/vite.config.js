@@ -9,19 +9,33 @@ export default defineConfig({
     chunkSizeWarningLimit: 1500,
     rollupOptions: {
       output: {
-        // 将大模块拆分为独立的代码块 (Code Split)
-        manualChunks: {
-          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          'echarts-vendor': [
-            'echarts-for-react/lib/core',
-            'echarts/charts',
-            'echarts/components',
-            'echarts/core',
-            'echarts/renderers'
-          ],
-          'xlsx-vendor': ['xlsx'],
-          'icons-vendor': ['lucide-react'],
-          'datepicker-vendor': ['react-datepicker']
+        // Keep React internals together so lazy-only vendors do not get pulled into the entry chunk.
+        manualChunks(id) {
+          if (!id.includes('node_modules')) {
+            return undefined;
+          }
+          const normalizedId = id.replace(/\\/g, '/');
+          if (
+            normalizedId.includes('/react/')
+            || normalizedId.includes('/react-dom/')
+            || normalizedId.includes('/react-router-dom/')
+            || normalizedId.includes('/scheduler/')
+          ) {
+            return 'react-vendor';
+          }
+          if (normalizedId.includes('/echarts') || normalizedId.includes('/zrender')) {
+            return 'echarts-vendor';
+          }
+          if (normalizedId.includes('/xlsx/')) {
+            return 'xlsx-vendor';
+          }
+          if (normalizedId.includes('/lucide-react/')) {
+            return 'icons-vendor';
+          }
+          if (normalizedId.includes('/react-datepicker/') || normalizedId.includes('/date-fns/')) {
+            return 'datepicker-vendor';
+          }
+          return undefined;
         }
       }
     }

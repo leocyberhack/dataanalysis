@@ -1,9 +1,11 @@
 import io
+import json
 from collections import defaultdict
 from datetime import datetime
+from typing import List
 
 import pandas as pd
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 import models
@@ -284,6 +286,66 @@ def upload_orders(
     return {"message": msg, "normal_count": normal_count, "pending_count": pending_count}
 
 
+@router.post("/upload_batch")
+async def upload_batch(
+    files: List[UploadFile] = File(...),
+    dates: str = Form(...),
+    types: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    try:
+        parsed_dates = json.loads(dates)
+        parsed_types = json.loads(types)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="Invalid batch metadata") from exc
+
+    if not isinstance(parsed_dates, list) or not isinstance(parsed_types, list):
+        raise HTTPException(status_code=400, detail="Batch metadata must be arrays")
+    if len(files) != len(parsed_dates) or len(files) != len(parsed_types):
+        raise HTTPException(status_code=400, detail="Batch files, dates, and types length mismatch")
+
+    results = []
+    for index, file in enumerate(files):
+        file_type = str(parsed_types[index]).strip()
+        file_date = str(parsed_dates[index]).strip()
+        try:
+            if file_type == "commodity":
+                response = await upload_file(date=file_date, file=file, db=db)
+            elif file_type == "order":
+                response = upload_orders(file=file, date=file_date, db=db)
+            else:
+                raise HTTPException(status_code=400, detail=f"Unsupported file type: {file_type}")
+            results.append({
+                "index": index,
+                "status": "success",
+                "message": response.get("message", ""),
+                "normal_count": response.get("normal_count"),
+                "pending_count": response.get("pending_count"),
+            })
+        except HTTPException as exc:
+            db.rollback()
+            results.append({
+                "index": index,
+                "status": "fail",
+                "error": exc.detail,
+            })
+        except Exception as exc:
+            db.rollback()
+            results.append({
+                "index": index,
+                "status": "fail",
+                "error": str(exc),
+            })
+
+    success_count = sum(1 for item in results if item["status"] == "success")
+    fail_count = len(results) - success_count
+    return {
+        "results": results,
+        "success_count": success_count,
+        "fail_count": fail_count,
+    }
+
+
 @router.delete("/data")
 def delete_data(date: str, db: Session = Depends(get_db)):
     try:
@@ -304,6 +366,49 @@ def delete_data(date: str, db: Session = Depends(get_db)):
         return {"message": msg}
     else:
         return {"message": f"{date} 当天没有可删除的数据"}
+
+
+@router.post("/data/batch_delete")
+def delete_data_batch(payload: dict = Body(...), db: Session = Depends(get_db)):
+    dates = payload.get("dates")
+    if not isinstance(dates, list):
+        raise HTTPException(status_code=400, detail="dates must be an array")
+
+    results = []
+    for index, raw_date in enumerate(dates):
+        date_value = str(raw_date).strip()
+        try:
+            response = delete_data(date=date_value, db=db)
+            results.append({
+                "index": index,
+                "date": date_value,
+                "status": "success",
+                "message": response.get("message", ""),
+            })
+        except HTTPException as exc:
+            db.rollback()
+            results.append({
+                "index": index,
+                "date": date_value,
+                "status": "fail",
+                "error": exc.detail,
+            })
+        except Exception as exc:
+            db.rollback()
+            results.append({
+                "index": index,
+                "date": date_value,
+                "status": "fail",
+                "error": str(exc),
+            })
+
+    success_count = sum(1 for item in results if item["status"] == "success")
+    fail_count = len(results) - success_count
+    return {
+        "results": results,
+        "success_count": success_count,
+        "fail_count": fail_count,
+    }
 
 
 @router.delete("/data/commodity")
