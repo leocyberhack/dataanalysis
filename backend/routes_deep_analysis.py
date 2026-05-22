@@ -132,6 +132,17 @@ def compute_daily_records(db, valid_dates, product_ids=None):
     return records
 
 
+def compute_feature_daily_averages(records):
+    if not records:
+        return {}
+
+    day_count = len(records)
+    return {
+        feature["key"]: sum(float(row.get(feature["key"]) or 0) for row in records) / day_count
+        for feature in FEATURES
+    }
+
+
 def build_change_matrix(records):
     x_rows = []
     y_values = []
@@ -245,6 +256,7 @@ def analyze_feature_weights(records):
 
 def build_deep_analysis_payload(db, valid_dates, poi_names, product_ids, cache_hit=False):
     records = compute_daily_records(db, valid_dates, product_ids)
+    daily_averages = compute_feature_daily_averages(records)
     analysis, message = analyze_feature_weights(records)
     date_range = {
         "start": records[0]["date"] if records else None,
@@ -267,6 +279,11 @@ def build_deep_analysis_payload(db, valid_dates, poi_names, product_ids, cache_h
             "model": None,
             "recent_records": records[-12:],
         }
+
+    feature_kinds = {feature["key"]: feature["kind"] for feature in FEATURES}
+    for feature in analysis["features"]:
+        feature["daily_average"] = daily_averages.get(feature["key"], 0.0)
+        feature["value_kind"] = feature_kinds.get(feature["key"], "volume")
 
     return {
         "status": "ready",

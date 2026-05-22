@@ -9,6 +9,30 @@ const formatNumber = (value) => Number(value || 0).toLocaleString(undefined, {
   maximumFractionDigits: 2,
 });
 
+const DEEP_FEATURE_TYPES = {
+  bounce_rate: 'percent',
+  redeem_rate_amount: 'percent',
+  refund_rate_amount: 'percent',
+  pay_amount: 'currency',
+};
+
+const formatDailyAverage = (feature) => {
+  const value = Number(feature.daily_average || 0);
+  const valueType = DEEP_FEATURE_TYPES[feature.key] || (feature.value_kind === 'rate' ? 'percent' : 'number');
+  if (valueType === 'percent') {
+    return formatPercent(value);
+  }
+  if (valueType === 'currency') {
+    return `¥${value.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+  }
+  return value.toLocaleString(undefined, {
+    maximumFractionDigits: 2,
+  });
+};
+
 function DeepAnalysis() {
   const [analysis, setAnalysis] = useState(null);
   const [pois, setPois] = useState([]);
@@ -195,6 +219,7 @@ function DeepAnalysis() {
                   <thead>
                     <tr>
                       <th>维度</th>
+                      <th>每日均值</th>
                       <th>权重</th>
                       <th>方向</th>
                       <th>置换重要性</th>
@@ -206,6 +231,7 @@ function DeepAnalysis() {
                     {analysis.features.map((feature) => (
                       <tr key={feature.key}>
                         <td>{feature.label}</td>
+                        <td>{formatDailyAverage(feature)}</td>
                         <td>{formatPercent(feature.weight)}</td>
                         <td className={feature.direction === 'positive' ? 'deep-direction-up' : 'deep-direction-down'}>
                           {feature.direction === 'positive' ? '正向' : '负向'}

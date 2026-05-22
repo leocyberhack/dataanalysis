@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
 import DatePicker, { registerLocale } from 'react-datepicker';
 import { zhCN } from 'date-fns/locale';
@@ -73,6 +73,17 @@ const MODULE_CONFIGS = {
 };
 
 const RANK_LIMIT = 5;
+const SHAREABLE_METRICS = new Set([
+  'visitor_count',
+  'page_views',
+  'pay_amount',
+  'redeem_amount',
+  'redeem_items',
+  'pay_items',
+  'refund_amount',
+  'refund_items',
+  'profit',
+]);
 const INITIAL_DETAIL_MODAL = {
   isOpen: false,
   poiKey: '',
@@ -103,6 +114,31 @@ const formatValue = (value, type) => {
   return numericValue.toLocaleString(undefined, {
     maximumFractionDigits: 2,
   });
+};
+
+const formatShare = (value) => {
+  if (!Number.isFinite(value)) {
+    return '';
+  }
+  return `占比 ${value.toFixed(2)}%`;
+};
+
+const formatDisplayDateKey = (value) => formatDateKey(value).replaceAll('-', '/');
+
+const formatDisplayDateRange = (startValue, endValue) => {
+  const startKey = formatDisplayDateKey(startValue);
+  const endKey = formatDisplayDateKey(endValue || startValue);
+  return startKey && endKey ? `${startKey}-${endKey}` : '--';
+};
+
+const shouldShowShare = (metric) => SHAREABLE_METRICS.has(metric.key);
+
+const calculateShare = (value, total) => {
+  const numericTotal = Number(total || 0);
+  if (!Number.isFinite(numericTotal) || numericTotal === 0) {
+    return null;
+  }
+  return (Number(value || 0) / numericTotal) * 100;
 };
 
 const formatChange = (change) => {
@@ -157,7 +193,7 @@ const rankRows = (rows, metricKey, direction = 'desc') => {
   });
 };
 
-const buildRankingRows = (rows, previousRowsByKey, metric, direction) => rankRows(rows, metric.key, direction)
+const buildRankingRows = (rows, previousRowsByKey, currentTotals, metric, direction) => rankRows(rows, metric.key, direction)
   .slice(0, RANK_LIMIT)
   .map((row) => {
     const previousRow = previousRowsByKey.get(row.group_key);
@@ -167,11 +203,13 @@ const buildRankingRows = (rows, previousRowsByKey, metric, direction) => rankRow
       name: row.group_name,
       rank: row.rank,
       value: row.metricValue,
+      previousValue,
+      share: shouldShowShare(metric) ? calculateShare(row.metricValue, currentTotals[metric.key]) : null,
       change: calculateChange(row.metricValue, previousValue),
     };
   });
 
-const buildCompositeRows = (rows, metrics) => {
+const buildCompositeRows = (rows, previousRowsByKey, metrics) => {
   const rankSumByKey = new Map();
   const rowByKey = new Map(rows.map((row) => [row.group_key, row]));
 
@@ -197,7 +235,18 @@ const buildCompositeRows = (rows, metrics) => {
       currentRank = index + 1;
       previousScore = row.score;
     }
-    return { ...row, rank: currentRank };
+    const currentRow = rowByKey.get(row.key) || {};
+    const previousRow = previousRowsByKey.get(row.key) || {};
+    return {
+      ...row,
+      rank: currentRank,
+      currentValues: Object.fromEntries(
+        metrics.map((metric) => [metric.key, Number(currentRow[`${metric.key}_total`] || 0)]),
+      ),
+      previousValues: Object.fromEntries(
+        metrics.map((metric) => [metric.key, Number(previousRow[`${metric.key}_total`] || 0)]),
+      ),
+    };
   });
 };
 
@@ -253,7 +302,7 @@ const buildTrendOption = ({ metric, trendRows, trendDates, groupNames }) => {
   };
 };
 
-function RankingTable({ title, rows, metric, onRowClick }) {
+function RankingTable({ title, rows, metric, previousRangeLabel, onRowClick }) {
   return (
     <div className="poi-ranking-table">
       <div className="poi-ranking-table-title">{title}</div>
@@ -265,19 +314,30 @@ function RankingTable({ title, rows, metric, onRowClick }) {
               className="poi-ranking-row"
               key={`${title}-${row.key}`}
               onClick={() => onRowClick(row, metric)}
-              title={`查看 ${row.name} 的商品明细`}
             >
               <div className="poi-ranking-main">
                 <span className="poi-rank-badge">{row.rank}</span>
                 <span className="poi-ranking-name" title={row.name}>{row.name}</span>
               </div>
               <div className="poi-ranking-side">
-                <span className="poi-ranking-value">{formatValue(row.value, metric.type)}</span>
+                <span className="poi-ranking-value-line">
+                  <span className="poi-ranking-value">{formatValue(row.value, metric.type)}</span>
+                  {row.share !== null && row.share !== undefined && (
+                    <span className="poi-ranking-share">{formatShare(row.share)}</span>
+                  )}
+                </span>
                 <span className={getChangeClassName(row.change)}>
                   {getChangeIcon(row.change)}
                   {formatChange(row.change)}
                 </span>
               </div>
+              <span className="poi-ranking-tooltip" role="tooltip">
+                <strong>{row.name}</strong>
+                <span>本期：{formatValue(row.value, metric.type)}</span>
+                <span>上期：{formatValue(row.previousValue, metric.type)}</span>
+                <span>上期范围：{previousRangeLabel}</span>
+                <span>同比：{formatChange(row.change)}</span>
+              </span>
             </button>
           ))}
         </div>
@@ -299,10 +359,13 @@ function POIInsight() {
   const [endDate, setEndDate] = useState(null);
   const [currentRows, setCurrentRows] = useState([]);
   const [previousRows, setPreviousRows] = useState([]);
+  const [currentTotals, setCurrentTotals] = useState({});
   const [trendPayloads, setTrendPayloads] = useState({});
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [detailModal, setDetailModal] = useState(INITIAL_DETAIL_MODAL);
+  const compositeTopScrollRef = useRef(null);
+  const compositeTableWrapperRef = useRef(null);
 
   const renderDateStatusDay = useMemo(
     () => createDateStatusDayRenderer(dateStatus),
@@ -373,11 +436,13 @@ function POIInsight() {
 
         setCurrentRows(nextCurrentRows);
         setPreviousRows(nextPreviousRows);
+        setCurrentTotals(currentAggregate.overall_totals || {});
         setTrendPayloads(Object.fromEntries(trendEntries));
       } catch (error) {
         console.error(error);
         setCurrentRows([]);
         setPreviousRows([]);
+        setCurrentTotals({});
         setTrendPayloads({});
         setErrorMessage(error.response?.data?.detail || error.message || '数据加载失败，请稍后重试。');
       } finally {
@@ -397,6 +462,28 @@ function POIInsight() {
     [previousRows],
   );
 
+  const previousRange = useMemo(() => {
+    if (!startDate || !endDate) {
+      return { startDate: null, endDate: null, startKey: '', endKey: '', label: '--' };
+    }
+    const dayCount = getInclusiveDayCount(startDate, endDate);
+    const previousEndDate = addDays(startDate, -1);
+    const previousStartDate = addDays(previousEndDate, -(dayCount - 1));
+    const { startKey, endKey } = formatDateRangeKeys(previousStartDate, previousEndDate);
+    return {
+      startDate: previousStartDate,
+      endDate: previousEndDate,
+      startKey,
+      endKey,
+      label: formatDisplayDateRange(previousStartDate, previousEndDate),
+    };
+  }, [endDate, startDate]);
+
+  const currentRangeLabel = useMemo(
+    () => startDate ? formatDisplayDateRange(startDate, endDate) : '--',
+    [endDate, startDate],
+  );
+
   const rankingGroups = useMemo(() => {
     if (!config) {
       return [];
@@ -404,15 +491,32 @@ function POIInsight() {
 
     return config.metrics.map((metric) => ({
       metric,
-      topRows: buildRankingRows(currentRows, previousRowsByKey, metric, 'desc'),
-      bottomRows: buildRankingRows(currentRows, previousRowsByKey, metric, 'asc'),
+      topRows: buildRankingRows(currentRows, previousRowsByKey, currentTotals, metric, 'desc'),
+      bottomRows: buildRankingRows(currentRows, previousRowsByKey, currentTotals, metric, 'asc'),
     }));
-  }, [config, currentRows, previousRowsByKey]);
+  }, [config, currentRows, currentTotals, previousRowsByKey]);
 
   const compositeRows = useMemo(
-    () => config ? buildCompositeRows(currentRows, config.metrics) : [],
-    [config, currentRows],
+    () => config ? buildCompositeRows(currentRows, previousRowsByKey, config.metrics) : [],
+    [config, currentRows, previousRowsByKey],
   );
+
+  const compositeTableMinWidth = useMemo(
+    () => config ? Math.max(760, 340 + config.metrics.length * 260) : 760,
+    [config],
+  );
+
+  const handleCompositeTopScroll = (event) => {
+    if (compositeTableWrapperRef.current && compositeTableWrapperRef.current.scrollLeft !== event.currentTarget.scrollLeft) {
+      compositeTableWrapperRef.current.scrollLeft = event.currentTarget.scrollLeft;
+    }
+  };
+
+  const handleCompositeBottomScroll = (event) => {
+    if (compositeTopScrollRef.current && compositeTopScrollRef.current.scrollLeft !== event.currentTarget.scrollLeft) {
+      compositeTopScrollRef.current.scrollLeft = event.currentTarget.scrollLeft;
+    }
+  };
 
   const handleDateRangeChange = (update) => {
     const [start, end] = update;
@@ -550,12 +654,14 @@ function POIInsight() {
                     title="前五 POI"
                     rows={topRows}
                     metric={metric}
+                    previousRangeLabel={previousRange.label}
                     onRowClick={handleOpenPoiDetail}
                   />
                   <RankingTable
                     title="倒数五 POI"
                     rows={bottomRows}
                     metric={metric}
+                    previousRangeLabel={previousRange.label}
                     onRowClick={handleOpenPoiDetail}
                   />
                 </div>
@@ -590,12 +696,19 @@ function POIInsight() {
               <Trophy size={18} color="var(--accent)" />
               <h3>{config.compositeTitle}</h3>
             </div>
-            <div className="data-table-wrapper">
-              <table className="data-table">
+            <div className="top-scrollbar-wrapper" ref={compositeTopScrollRef} onScroll={handleCompositeTopScroll}>
+              <div style={{ width: `${compositeTableMinWidth}px`, height: '1px' }} />
+            </div>
+            <div className="data-table-wrapper" ref={compositeTableWrapperRef} onScroll={handleCompositeBottomScroll}>
+              <table className="data-table poi-composite-table" style={{ minWidth: `${compositeTableMinWidth}px` }}>
                 <thead>
                   <tr>
                     <th>综合排名</th>
                     <th>POI</th>
+                    {config.metrics.flatMap((metric) => [
+                      <th key={`${metric.key}-current`} title={currentRangeLabel}>{metric.label}（本期）</th>,
+                      <th key={`${metric.key}-previous`} title={previousRange.label}>{metric.label}（上期）</th>,
+                    ])}
                     <th>平均排名</th>
                   </tr>
                 </thead>
@@ -604,6 +717,14 @@ function POIInsight() {
                     <tr key={row.key}>
                       <td>{row.rank}</td>
                       <td>{row.name}</td>
+                      {config.metrics.flatMap((metric) => [
+                        <td key={`${row.key}-${metric.key}-current`}>
+                          {formatValue(row.currentValues[metric.key], metric.type)}
+                        </td>,
+                        <td key={`${row.key}-${metric.key}-previous`}>
+                          {formatValue(row.previousValues[metric.key], metric.type)}
+                        </td>,
+                      ])}
                       <td>{row.score.toFixed(2)}</td>
                     </tr>
                   ))}
