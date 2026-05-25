@@ -116,7 +116,11 @@ function CompareCharts({ aggregatedRows, rawData, trendDates, selectedMetrics, m
         const lineClr = colors[idx % colors.length];
         return {
           ...item,
-          lineStyle: { width: 3 },
+          lineStyle: { 
+            width: 3.5,
+            shadowBlur: 10,
+            shadowColor: lineClr + '66'
+          },
           areaStyle: {
             color: {
               type: 'linear',

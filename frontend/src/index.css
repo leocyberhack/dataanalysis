@@ -1,11 +1,13 @@
+@property --angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
 :root {
-  --bg-gradient: radial-gradient(circle at 10% 20%, rgba(254, 234, 204, 0.5) 0%, transparent 40%),
-                 radial-gradient(circle at 90% 10%, rgba(224, 122, 95, 0.1) 0%, transparent 45%),
-                 radial-gradient(circle at 50% 80%, rgba(255, 252, 245, 1) 0%, transparent 60%),
-                 #fffcf5;
-  --glass-bg: rgba(255, 255, 255, 0.45);
-  --glass-border: rgba(255, 255, 255, 0.6);
-  --glass-shadow: 0 12px 40px -12px rgba(220, 150, 100, 0.08), 0 2px 4px rgba(0, 0, 0, 0.01);
+  --glass-bg: rgba(255, 255, 255, 0.4);
+  --glass-border: rgba(255, 255, 255, 0.65);
+  --glass-shadow: 0 16px 40px -16px rgba(220, 150, 100, 0.12), 0 2px 4px rgba(0, 0, 0, 0.01);
   --text-main: #4a3f35;
   --text-muted: #8c7b65;
   --accent: #e07a5f;
@@ -14,15 +16,9 @@
   --success: #55a630;
   --danger: #d90429;
   --font-base: 'Outfit', 'Inter', 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-  --panel-blur: 20px;
-  --sidebar-blur: 24px;
+  --panel-blur: 24px;
+  --sidebar-blur: 28px;
   --transition-smooth: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-@keyframes fluidBG {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
 }
 
 * {
@@ -37,16 +33,59 @@ body,
   min-height: 100vh;
 }
 
+@keyframes floatBlob1 {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(15vw, 10vh) scale(1.15); }
+  100% { transform: translate(5vw, 20vh) scale(0.95); }
+}
+
+@keyframes floatBlob2 {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-10vw, -15vh) scale(0.85); }
+  100% { transform: translate(-20vw, -8vh) scale(1.1); }
+}
+
 body {
   font-family: var(--font-base);
-  background: var(--bg-gradient);
-  background-size: 200% 200%;
-  animation: fluidBG 18s ease-in-out infinite;
+  background-color: #fffcf5;
+  background-image: 
+    linear-gradient(rgba(224, 122, 95, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(224, 122, 95, 0.025) 1px, transparent 1px);
+  background-size: 36px 36px;
+  background-attachment: fixed;
   color: var(--text-main);
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
-  background-attachment: fixed;
+  position: relative;
   overflow-x: hidden;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  top: -15%;
+  left: -10%;
+  width: 55%;
+  height: 55%;
+  background: radial-gradient(circle, rgba(254, 234, 204, 0.8) 0%, rgba(254, 234, 204, 0) 70%);
+  filter: blur(90px);
+  z-index: -2;
+  animation: floatBlob1 22s infinite ease-in-out alternate;
+  pointer-events: none;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  bottom: -15%;
+  right: -10%;
+  width: 65%;
+  height: 65%;
+  background: radial-gradient(circle, rgba(224, 122, 95, 0.28) 0%, rgba(224, 122, 95, 0) 70%);
+  filter: blur(110px);
+  z-index: -2;
+  animation: floatBlob2 26s infinite ease-in-out alternate;
+  pointer-events: none;
 }
 
 /* Scrollbar */
@@ -2439,4 +2478,101 @@ body {
   backdrop-filter: blur(8px) !important;
   -webkit-backdrop-filter: blur(8px) !important;
   transition: var(--transition-smooth) !important;
+}
+
+/* --- High-Tech "炫技" Show-off Visual Elements (Solarpunk/Holograph Theme) --- */
+
+/* 1. Holographic Glare sweep on Card hover */
+.glass-panel {
+  position: relative;
+  overflow: hidden;
+}
+.glass-panel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -150%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+  transform: skewX(-25deg);
+  transition: none;
+  pointer-events: none;
+  z-index: 2;
+}
+.glass-panel:hover::before {
+  left: 150%;
+  transition: left 0.85s ease-in-out;
+}
+
+/* 2. Laser Border Beam on key analytics panels (conic gradient rotation) */
+@keyframes rotateBeam {
+  to { --angle: 360deg; }
+}
+.deep-analysis-hero, .plan-builder-card {
+  position: relative;
+  border: 1.5px solid transparent !important;
+  background: 
+    linear-gradient(rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.55)) padding-box,
+    conic-gradient(from var(--angle), var(--accent) 0%, transparent 25%, transparent 75%, var(--accent) 100%) border-box !important;
+  animation: rotateBeam 6s linear infinite !important;
+}
+
+/* 3. Laser Meteor Flow Progress Bar Indicator */
+@keyframes progressMeteor {
+  0% { left: -100%; }
+  100% { left: 100%; }
+}
+.plan-progress-bar span {
+  position: relative;
+  overflow: hidden;
+}
+.plan-progress-bar span::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -100%;
+  width: 50%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+  animation: progressMeteor 2.5s infinite linear;
+}
+
+/* 4. Glowing Fluorescent Numbers on hover */
+.metric-value, .poi-ranking-value, .date-status-day-number {
+  transition: var(--transition-smooth) !important;
+}
+.metric-card:hover .metric-value,
+.poi-ranking-row:hover .poi-ranking-value {
+  color: var(--accent) !important;
+  text-shadow: 0 0 12px rgba(224, 122, 95, 0.4);
+}
+
+/* 5. Distinct Glow for Active Navigation pill */
+.nav-link.active {
+  position: relative;
+}
+.nav-link.active::after {
+  content: '';
+  position: absolute;
+  right: 12px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 0 10px #ffffff, 0 0 20px #ffffff;
+  animation: pulseGlow 1.5s infinite ease-in-out;
+}
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.3); }
+}
+
+/* 6. Fix for page load animation and hover scaling adjustments to make animations very obvious */
+.metric-card:hover {
+  transform: translateY(-8px) scale(1.02) !important;
+  box-shadow: 0 24px 50px -10px rgba(224, 122, 95, 0.28), var(--glass-shadow) !important;
+}
+.glass-panel:hover {
+  box-shadow: 0 20px 40px -15px rgba(220, 150, 100, 0.12), var(--glass-shadow) !important;
 }
