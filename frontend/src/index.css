@@ -385,15 +385,24 @@ body::after {
 .status-datepicker-calendar .react-datepicker__day,
 .status-datepicker-calendar .react-datepicker__time-name {
   width: 4rem;
-  line-height: 4rem;
+  height: 4rem;
+  line-height: 1;
   margin: 0.2rem;
+}
+
+.status-datepicker-calendar .react-datepicker__day,
+.status-datepicker-calendar .react-datepicker__time-name {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .status-datepicker-wrapper.is-upload .react-datepicker__day-name,
 .status-datepicker-wrapper.is-upload .react-datepicker__day,
 .status-datepicker-wrapper.is-upload .react-datepicker__time-name {
   width: 4.5rem;
-  line-height: 4.5rem;
+  height: 4.5rem;
+  line-height: 1;
 }
 
 .status-datepicker-wrapper .react-datepicker__input-container input {
@@ -451,23 +460,29 @@ body::after {
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 6px;
 }
 
 .date-status-day-number {
-  line-height: 1.2;
+  color: inherit;
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .date-status-day-dots {
-  position: absolute;
-  bottom: 4px;
   display: flex;
-  gap: 6px;
+  gap: 5px;
   justify-content: center;
-  width: 100%;
+  min-height: 8px;
 }
 
 .date-status-day-dots.is-compact {
-  gap: 5px;
+  gap: 4px;
+}
+
+.date-status-day-dots:empty {
+  display: none;
 }
 
 .date-status-day-dot {
@@ -2232,8 +2247,22 @@ body::after {
   .status-datepicker-calendar .react-datepicker__day,
   .status-datepicker-calendar .react-datepicker__time-name {
     width: 2.35rem !important;
-    line-height: 2.35rem !important;
+    height: 2.35rem !important;
+    line-height: 1 !important;
     margin: 0.1rem !important;
+  }
+
+  .date-status-day {
+    gap: 3px;
+  }
+
+  .date-status-day-number {
+    font-size: 0.95rem;
+  }
+
+  .date-status-day-dot {
+    width: 6px;
+    height: 6px;
   }
 }
 
