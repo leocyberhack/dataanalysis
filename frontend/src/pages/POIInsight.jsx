@@ -304,14 +304,30 @@ const buildTrendOption = ({ metric, trendRows, trendDates, groupNames }) => {
         },
         splitLine: { lineStyle: { color: 'var(--glass-border)' } },
       },
-      series: groups.map(([groupKey, groupName]) => ({
-        ...linePerformanceOptions,
-        name: groupName,
-        type: 'line',
-        smooth: true,
-        data: trendDates.map((date) => valueByGroupDate.get(`${groupKey}::${date}`) ?? 0),
-        emphasis: { focus: 'series' },
-      })),
+      color: ['#e07a5f', '#f4a261', '#2a9d8f', '#e76f51', '#457b9d', '#1d3557'],
+      series: groups.map(([groupKey, groupName], idx) => {
+        const colors = ['#e07a5f', '#f4a261', '#2a9d8f', '#e76f51', '#457b9d', '#1d3557'];
+        const lineClr = colors[idx % colors.length];
+        return {
+          ...linePerformanceOptions,
+          name: groupName,
+          type: 'line',
+          smooth: true,
+          lineStyle: { width: 3 },
+          areaStyle: {
+            color: {
+              type: 'linear',
+              x: 0, y: 0, x2: 0, y2: 1,
+              colorStops: [
+                { offset: 0, color: lineClr + '33' },
+                { offset: 1, color: lineClr + '01' }
+              ]
+            }
+          },
+          data: trendDates.map((date) => valueByGroupDate.get(`${groupKey}::${date}`) ?? 0),
+          emphasis: { focus: 'series' },
+        };
+      }),
     },
     renderer: getRendererForPointCount(groups.length, trendDates.length),
   };
@@ -656,7 +672,7 @@ function POIInsight() {
       </div>
 
       {loading ? (
-        <div className="glass-panel poi-empty-state">加载中...</div>
+        <div className="glass-panel poi-empty-state skeleton-pulse">数据加载中...</div>
       ) : errorMessage ? (
         <div className="glass-panel poi-empty-state">{errorMessage}</div>
       ) : (
@@ -790,7 +806,7 @@ function POIInsight() {
 
             <div className="poi-detail-modal-body">
               {detailModal.loading ? (
-                <div className="poi-empty poi-detail-message">商品明细加载中...</div>
+                <div className="poi-empty poi-detail-message skeleton-pulse" style={{ padding: '30px', borderRadius: '12px', background: 'rgba(255,255,255,0.3)', textAlign: 'center' }}>商品明细加载中...</div>
               ) : detailModal.error ? (
                 <div className="poi-empty poi-detail-message">{detailModal.error}</div>
               ) : detailModal.rows.length > 0 ? (

@@ -1,18 +1,28 @@
 :root {
-  --bg-gradient: linear-gradient(135deg, #fffcf5 0%, #fdeacc 100%);
-  --glass-bg: rgba(255, 255, 255, 0.65);
-  --glass-border: rgba(255, 255, 255, 0.8);
-  --glass-shadow: 0 10px 40px -10px rgba(220, 150, 100, 0.15);
+  --bg-gradient: radial-gradient(circle at 10% 20%, rgba(254, 234, 204, 0.5) 0%, transparent 40%),
+                 radial-gradient(circle at 90% 10%, rgba(224, 122, 95, 0.1) 0%, transparent 45%),
+                 radial-gradient(circle at 50% 80%, rgba(255, 252, 245, 1) 0%, transparent 60%),
+                 #fffcf5;
+  --glass-bg: rgba(255, 255, 255, 0.45);
+  --glass-border: rgba(255, 255, 255, 0.6);
+  --glass-shadow: 0 12px 40px -12px rgba(220, 150, 100, 0.08), 0 2px 4px rgba(0, 0, 0, 0.01);
   --text-main: #4a3f35;
   --text-muted: #8c7b65;
   --accent: #e07a5f;
   --accent-hover: #d06d53;
-  --accent-light: rgba(224, 122, 95, 0.15);
+  --accent-light: rgba(224, 122, 95, 0.12);
   --success: #55a630;
   --danger: #d90429;
-  --font-base: 'Inter', 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-  --panel-blur: 12px;
-  --sidebar-blur: 16px;
+  --font-base: 'Outfit', 'Inter', 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --panel-blur: 20px;
+  --sidebar-blur: 24px;
+  --transition-smooth: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes fluidBG {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 }
 
 * {
@@ -30,6 +40,8 @@ body,
 body {
   font-family: var(--font-base);
   background: var(--bg-gradient);
+  background-size: 200% 200%;
+  animation: fluidBG 18s ease-in-out infinite;
   color: var(--text-main);
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
@@ -63,7 +75,7 @@ body {
 
 .sidebar {
   width: 260px;
-  background: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.35);
   backdrop-filter: blur(var(--sidebar-blur));
   -webkit-backdrop-filter: blur(var(--sidebar-blur));
   border-right: 1px solid var(--glass-border);
@@ -71,6 +83,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 32px;
+  box-shadow: 4px 0 30px rgba(220, 150, 100, 0.02);
 }
 
 .sidebar-title {
@@ -100,19 +113,21 @@ body {
   color: var(--text-muted);
   text-decoration: none;
   font-weight: 500;
-  transition: all 0.3s ease;
+  transition: var(--transition-smooth);
 }
 
 .nav-link:hover {
-  background: rgba(224, 122, 95, 0.08);
+  background: rgba(224, 122, 95, 0.06);
   color: var(--accent);
+  transform: translateX(4px);
 }
 
 .nav-link.active {
   background: var(--accent);
   color: #fff;
   border-left: 4px solid #fff;
-  box-shadow: 0 4px 12px rgba(224, 122, 95, 0.3);
+  box-shadow: 0 6px 20px -4px rgba(224, 122, 95, 0.3);
+  transform: translateX(4px);
 }
 
 .main-content {
@@ -167,6 +182,7 @@ body {
   border-radius: 16px;
   box-shadow: var(--glass-shadow);
   padding: 24px;
+  transition: var(--transition-smooth);
 }
 
 .upload-area {
@@ -175,18 +191,20 @@ body {
   align-items: center;
   justify-content: center;
   padding: 60px 20px;
-  border: 2px dashed rgba(224, 122, 95, 0.3);
+  border: 2px dashed rgba(224, 122, 95, 0.2);
   border-radius: 16px;
   margin-top: 20px;
   cursor: pointer;
-  transition: all 0.3s ease;
-  background: rgba(255, 255, 255, 0.4);
+  transition: var(--transition-smooth);
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .upload-area:hover,
 .upload-area.drag-active {
   background: var(--accent-light);
   border-color: var(--accent);
+  box-shadow: 0 8px 30px rgba(224, 122, 95, 0.08);
+  transform: scale(1.01);
 }
 
 .upload-icon {
@@ -203,7 +221,7 @@ body {
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: border-radius 0.2s, transform 0.2s, background 0.2s, box-shadow 0.2s;
+  transition: var(--transition-smooth);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -212,7 +230,7 @@ body {
 .btn:hover {
   background: var(--accent-hover);
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(224, 122, 95, 0.3);
+  box-shadow: 0 6px 20px rgba(224, 122, 95, 0.25);
 }
 
 .btn:disabled {
@@ -223,19 +241,19 @@ body {
 }
 
 .btn-secondary {
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.6);
   color: var(--accent);
-  border: 1px solid rgba(224, 122, 95, 0.2);
+  border: 1px solid rgba(224, 122, 95, 0.15);
+  backdrop-filter: blur(4px);
 }
 
 .btn-secondary:hover {
-  background: rgba(224, 122, 95, 0.1);
+  background: rgba(224, 122, 95, 0.08);
   color: var(--accent-hover);
+  border-color: rgba(224, 122, 95, 0.3);
 }
 
 .input-group {
-  display: flex;
-  flex-direction: column;
   gap: 8px;
 }
 
@@ -402,7 +420,6 @@ body {
 .date-status-day-dot.is-commodity {
   background-color: #60a5fa;
 }
-
 .date-status-day-dot.is-order {
   background-color: #f59e0b;
 }
@@ -419,11 +436,14 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  transition: transform 0.2s;
+  transition: var(--transition-smooth);
 }
 
 .metric-card:hover {
-  transform: translateY(-4px);
+  transform: translateY(-6px);
+  box-shadow: 0 20px 40px -15px rgba(224, 122, 95, 0.15), var(--glass-shadow);
+  border-color: rgba(224, 122, 95, 0.35);
+  background: rgba(255, 255, 255, 0.65);
 }
 
 .metric-title {
@@ -2150,4 +2170,273 @@ body {
     line-height: 2.35rem !important;
     margin: 0.1rem !important;
   }
+}
+
+/* Premium DatePicker & Skeleton Overrides (Option A) */
+.react-datepicker {
+  background: rgba(255, 255, 255, 0.92) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.7) !important;
+  border-radius: 20px !important;
+  box-shadow: 0 20px 50px -12px rgba(74, 63, 53, 0.12) !important;
+  font-family: var(--font-base) !important;
+}
+
+.react-datepicker__header {
+  background: transparent !important;
+  border-bottom: 1px solid rgba(224, 122, 95, 0.1) !important;
+  padding-top: 16px !important;
+}
+
+.react-datepicker__current-month {
+  color: var(--text-main) !important;
+  font-weight: 700 !important;
+}
+
+.react-datepicker__day-name {
+  color: var(--text-muted) !important;
+  font-weight: 600 !important;
+}
+
+.react-datepicker__day {
+  color: var(--text-main) !important;
+  border-radius: 50% !important;
+  transition: all 0.2s ease !important;
+}
+
+.react-datepicker__day:hover {
+  background-color: var(--accent-light) !important;
+  color: var(--accent) !important;
+}
+
+.react-datepicker__day--selected,
+.react-datepicker__day--keyboard-selected,
+.react-datepicker__day--in-range,
+.react-datepicker__day--in-selecting-range {
+  background-color: var(--accent) !important;
+  color: #fff !important;
+}
+
+.react-datepicker__day--in-selecting-range:not(.react-datepicker__day--in-range) {
+  background-color: rgba(224, 122, 95, 0.25) !important;
+  color: var(--accent) !important;
+}
+
+.react-datepicker__day--disabled {
+  color: rgba(0, 0, 0, 0.15) !important;
+}
+
+/* Shimmer Loading Skeleton */
+@keyframes skeletonShimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton-pulse {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.3) 25%, rgba(255, 255, 255, 0.65) 50%, rgba(255, 255, 255, 0.3) 75%);
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.6s infinite ease-in-out;
+}
+
+.poi-empty-state {
+  position: relative;
+  overflow: hidden;
+  text-align: center;
+  color: var(--text-muted);
+  font-weight: 500;
+  padding: 40px !important;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* --- Premium UX Enhancements (Option A) --- */
+
+/* 1. Form controls focus ring & 3D transition glow */
+.input, .select {
+  transition: var(--transition-smooth) !important;
+}
+.input:focus, .select:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 4px rgba(224, 122, 95, 0.15) !important;
+  background: #ffffff !important;
+  transform: translateY(-1px);
+}
+
+/* 2. Plan progress bar warm gradient and glow styling */
+.plan-progress-bar {
+  background: rgba(0, 0, 0, 0.05) !important;
+  border-radius: 10px !important;
+  height: 10px !important;
+  overflow: hidden !important;
+}
+.plan-progress-bar span {
+  background: linear-gradient(90deg, #f4a261 0%, #e07a5f 100%) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 0 8px rgba(224, 122, 95, 0.35) !important;
+  transition: width 1s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+/* 3. Button active click tactile scaling & hover glow */
+.btn, .btn-secondary, .plan-edit-button, .plan-delete-button {
+  transition: var(--transition-smooth) !important;
+}
+.btn:active, .btn-secondary:active, .plan-edit-button:active, .plan-delete-button:active {
+  transform: scale(0.97) translateY(-1px) !important;
+}
+
+/* 4. POI mode radio cards glass styles */
+.plan-radio-card {
+  background: rgba(255, 255, 255, 0.3) !important;
+  border: 1px solid rgba(224, 122, 95, 0.15) !important;
+  border-radius: 12px !important;
+  padding: 12px 20px !important;
+  cursor: pointer !important;
+  transition: var(--transition-smooth) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+.plan-radio-card:hover {
+  background: rgba(255, 255, 255, 0.5) !important;
+  border-color: rgba(224, 122, 95, 0.3) !important;
+  transform: translateY(-1px);
+}
+.plan-radio-card.is-selected {
+  background: rgba(224, 122, 95, 0.1) !important;
+  border-color: var(--accent) !important;
+  box-shadow: 0 6px 15px -4px rgba(224, 122, 95, 0.2) !important;
+}
+
+/* 5. Tooltip high-blur glass styling & slide-fade hover animations */
+.poi-ranking-tooltip {
+  background: rgba(255, 252, 245, 0.96) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border: 1px solid rgba(224, 122, 95, 0.2) !important;
+  box-shadow: 0 10px 30px rgba(74, 63, 53, 0.12) !important;
+  border-radius: 12px !important;
+  padding: 12px 14px !important;
+  pointer-events: none !important;
+  opacity: 0 !important;
+  transform: translateY(6px) !important;
+  transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+.poi-ranking-row:hover .poi-ranking-tooltip,
+.poi-ranking-row:focus-visible .poi-ranking-tooltip {
+  opacity: 1 !important;
+  transform: translateY(0) !important;
+}
+
+/* 6. Page titles warm bronze gradient typography */
+.page-title {
+  background: linear-gradient(135deg, #2c241b 0%, #7d5945 100%) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  font-weight: 800 !important;
+}
+
+/* --- Additional Premium UI/UX Details (Option A) --- */
+
+/* 1. Stagger Fade-In Animation for Panels */
+@keyframes panelFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.glass-panel {
+  animation: panelFadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* 2. Review Card Alert Borders & Hover Glow */
+.mobile-review-card {
+  transition: var(--transition-smooth) !important;
+  box-shadow: var(--glass-shadow) !important;
+}
+.mobile-review-card:hover {
+  transform: translateY(-4px) scale(1.01);
+  background: rgba(255, 255, 255, 0.65) !important;
+  box-shadow: 0 15px 35px -10px rgba(220, 150, 100, 0.15), var(--glass-shadow) !important;
+}
+
+/* 3. Custom Checkboxes Styling */
+.compare-checkbox-item input[type="checkbox"] {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  width: 18px !important;
+  height: 18px !important;
+  border: 1.5px solid rgba(224, 122, 95, 0.3) !important;
+  border-radius: 6px !important;
+  background: rgba(255, 255, 255, 0.6) !important;
+  cursor: pointer !important;
+  position: relative !important;
+  transition: var(--transition-smooth) !important;
+}
+.compare-checkbox-item input[type="checkbox"]:checked {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+}
+.compare-checkbox-item input[type="checkbox"]:checked::after {
+  content: "" !important;
+  position: absolute !important;
+  left: 5px !important;
+  top: 2px !important;
+  width: 5px !important;
+  height: 9px !important;
+  border: solid white !important;
+  border-width: 0 2px 2px 0 !important;
+  transform: rotate(45deg) !important;
+}
+.compare-checkbox-item input[type="checkbox"]:focus {
+  box-shadow: 0 0 0 3px rgba(224, 122, 95, 0.15) !important;
+  outline: none !important;
+}
+
+/* 4. Unified Select arrow overrides */
+.glass-panel select {
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238c7b65' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 10px center !important;
+  background-size: 14px !important;
+  padding-right: 28px !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  background-color: rgba(255, 255, 255, 0.72) !important;
+  border: 1px solid rgba(224, 122, 95, 0.15) !important;
+  border-radius: 8px !important;
+  font-family: var(--font-base) !important;
+  transition: var(--transition-smooth) !important;
+}
+.glass-panel select:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 4px rgba(224, 122, 95, 0.15) !important;
+  background-color: #ffffff !important;
+  outline: none !important;
+}
+
+/* 5. Warning banner Amber Glow styling */
+.glass-panel.mobile-summary-row,
+.glass-panel:has(.AlertTriangle),
+.glass-panel:has(svg[color="#F59E0B"]) {
+  background: rgba(245, 158, 11, 0.04) !important;
+  border: 1px solid rgba(245, 158, 11, 0.18) !important;
+  box-shadow: 0 8px 24px -10px rgba(245, 158, 11, 0.12) !important;
+}
+
+/* 6. Modal Backdrop filter Deep Blur */
+.poi-modal-backdrop {
+  background: rgba(74, 63, 53, 0.25) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  transition: var(--transition-smooth) !important;
 }

@@ -143,7 +143,7 @@ const Dashboard = () => {
       </div>
 
       {loading ? (
-        <div>加载中...</div>
+        <div className="glass-panel poi-empty-state skeleton-pulse" style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>核心指标加载中...</div>
       ) : data?.today ? (
         <>
           <SummaryMetricsGrid summary={data} prefix={getTitlePrefix()} />

@@ -110,7 +110,25 @@ function CompareCharts({ aggregatedRows, rawData, trendDates, selectedMetrics, m
         axisLabel: { color: 'var(--text-muted)' },
         splitLine: { lineStyle: { color: 'var(--glass-border)' } },
       },
-      series: lineChartModel.series,
+      color: ['#e07a5f', '#f4a261', '#2a9d8f', '#e76f51', '#457b9d', '#1d3557'],
+      series: lineChartModel.series.map((item, idx) => {
+        const colors = ['#e07a5f', '#f4a261', '#2a9d8f', '#e76f51', '#457b9d', '#1d3557'];
+        const lineClr = colors[idx % colors.length];
+        return {
+          ...item,
+          lineStyle: { width: 3 },
+          areaStyle: {
+            color: {
+              type: 'linear',
+              x: 0, y: 0, x2: 0, y2: 1,
+              colorStops: [
+                { offset: 0, color: lineClr + '33' },
+                { offset: 1, color: lineClr + '01' }
+              ]
+            }
+          }
+        };
+      }),
     };
   }, [activeMetric, lineChartModel, metricLabels]);
 
@@ -145,7 +163,17 @@ function CompareCharts({ aggregatedRows, rawData, trendDates, selectedMetrics, m
           name: metricLabels[activeMetric],
           type: 'bar',
           data: topAverageRows.map((item) => item[`${activeMetric}_avg`] || 0).reverse(),
-          itemStyle: { borderRadius: [0, 4, 4, 0], color: 'var(--accent)' },
+          itemStyle: {
+            borderRadius: [0, 8, 8, 0],
+            color: {
+              type: 'linear',
+              x: 0, y: 0, x2: 1, y2: 0,
+              colorStops: [
+                { offset: 0, color: 'rgba(224, 122, 95, 0.45)' },
+                { offset: 1, color: '#e07a5f' }
+              ]
+            }
+          },
         },
       ],
     };
@@ -164,6 +192,7 @@ function CompareCharts({ aggregatedRows, rawData, trendDates, selectedMetrics, m
       },
       tooltip: { trigger: 'item', backgroundColor: 'rgba(255,255,255,0.92)' },
       legend: { show: false },
+      color: ['#e07a5f', '#f4a261', '#2a9d8f', '#e76f51', '#457b9d', '#1d3557'],
       series: [
         {
           name: metricLabels[activeMetric],
@@ -171,9 +200,9 @@ function CompareCharts({ aggregatedRows, rawData, trendDates, selectedMetrics, m
           radius: ['40%', '70%'],
           avoidLabelOverlap: true,
           itemStyle: {
-            borderRadius: 10,
-            borderColor: 'rgba(255,255,255,0.85)',
-            borderWidth: 2,
+            borderRadius: 8,
+            borderColor: '#fffcf5',
+            borderWidth: 2.5,
           },
           label: { show: true, color: 'var(--text-muted)', formatter: '{b}\n{d}%' },
           data: topTotalRows.map((item) => ({

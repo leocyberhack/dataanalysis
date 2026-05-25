@@ -139,6 +139,7 @@ function DeepAnalysis() {
         bottom: 24,
         textStyle: { color: 'var(--text-muted)' },
       },
+      color: ['#e07a5f', '#f4a261', '#2a9d8f', '#e76f51', '#457b9d', '#1d3557'],
       series: [
         {
           name: 'SHAP影响权重',
@@ -146,6 +147,11 @@ function DeepAnalysis() {
           radius: ['42%', '70%'],
           center: ['38%', '52%'],
           avoidLabelOverlap: true,
+          itemStyle: {
+            borderRadius: 8,
+            borderColor: '#fffcf5',
+            borderWidth: 2.5,
+          },
           label: {
             formatter: '{b}\n{d}%',
             color: 'var(--text-main)',
@@ -218,7 +224,7 @@ function DeepAnalysis() {
       </section>
 
       {loading ? (
-        <div className="glass-panel poi-empty-state">集成估计器与因果网络实时训练中...</div>
+        <div className="glass-panel poi-empty-state skeleton-pulse">集成估计器与因果网络实时训练中...</div>
       ) : errorMessage ? (
         <div className="glass-panel poi-empty-state">{errorMessage}</div>
       ) : !analysis ? (
