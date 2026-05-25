@@ -10,6 +10,7 @@ from services import (
     build_order_product_id,
     clear_runtime_caches,
     refresh_materialized_summaries,
+    refresh_product_poi_mappings,
 )
 
 
@@ -89,6 +90,7 @@ def approve_order(
             product = models.Product(id=build_order_product_id(order.product_name), name=order.product_name)
             db.add(product)
             db.flush()
+        refresh_product_poi_mappings(db, [{"id": product.id, "name": product.name}])
 
         daily_data = db.query(models.DailyData).filter_by(
             product_id=product.id, date=order.date

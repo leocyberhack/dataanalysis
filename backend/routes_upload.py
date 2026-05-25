@@ -18,6 +18,8 @@ from services import (
     normalize_float_cell,
     normalize_string_cell,
     refresh_materialized_summaries,
+    refresh_materialized_summaries_for_dates,
+    refresh_product_poi_mappings,
 )
 
 
@@ -25,7 +27,20 @@ router = APIRouter()
 
 
 @router.post("/upload")
-async def upload_file(date: str = Form(...), file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_file(
+    date: str = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    return await _upload_file_impl(date=date, file=file, db=db)
+
+
+async def _upload_file_impl(
+    date: str,
+    file: UploadFile,
+    db: Session,
+    defer_finalize: bool = False,
+):
     try:
         target_date = datetime.strptime(date, "%Y-%m-%d").date()
     except ValueError:
@@ -40,6 +55,7 @@ async def upload_file(date: str = Form(...), file: UploadFile = File(...), db: S
     if "产品编号" not in df.columns or "商品名称" not in df.columns:
         raise HTTPException(status_code=400, detail="Excel must contain '产品编号' and '商品名称'")
 
+    df = df.drop_duplicates(subset=["产品编号"])
     df = df.fillna(0)
     for col in df.columns:
         if df[col].dtype == "object" and col not in ["产品编号", "商品名称"]:
@@ -100,8 +116,10 @@ async def upload_file(date: str = Form(...), file: UploadFile = File(...), db: S
         ).delete(synchronize_session=False)
 
         new_product_mappings = []
+        touched_products = {}
         daily_data_mappings = []
         for product_id, product_name, data_mapping in parsed_rows:
+            touched_products[product_id] = product_name
             product = existing_products.get(product_id)
             if product is not None:
                 if product.name != product_name:
@@ -124,10 +142,20 @@ async def upload_file(date: str = Form(...), file: UploadFile = File(...), db: S
             db.bulk_insert_mappings(models.Product, new_product_mappings)
         if daily_data_mappings:
             db.bulk_insert_mappings(models.DailyData, daily_data_mappings)
+        if touched_products:
+            refresh_product_poi_mappings(
+                db,
+                [
+                    {"id": product_id, "name": product_name}
+                    for product_id, product_name in touched_products.items()
+                ],
+            )
 
-        refresh_materialized_summaries(db, target_date)
+        if not defer_finalize:
+            refresh_materialized_summaries(db, target_date)
         db.commit()
-        clear_runtime_caches()
+        if not defer_finalize:
+            clear_runtime_caches()
     except HTTPException:
         db.rollback()
         raise
@@ -143,6 +171,15 @@ def upload_orders(
     file: UploadFile = File(...),
     date: str = Form(...),
     db: Session = Depends(get_db),
+):
+    return _upload_orders_impl(file=file, date=date, db=db)
+
+
+def _upload_orders_impl(
+    file: UploadFile,
+    date: str,
+    db: Session,
+    defer_finalize: bool = False,
 ):
     try:
         target_date = datetime.strptime(date, "%Y-%m-%d").date()
@@ -217,8 +254,7 @@ def upload_orders(
                 db.delete(r)
 
         db.query(models.PendingOrder).filter(
-            models.PendingOrder.date == target_date,
-            models.PendingOrder.status == "pending"
+            models.PendingOrder.date == target_date
         ).delete(synchronize_session=False)
 
         db.flush()
@@ -270,9 +306,19 @@ def upload_orders(
             if new_daily_row_mappings:
                 db.bulk_insert_mappings(models.DailyData, new_daily_row_mappings)
 
-        refresh_materialized_summaries(db, target_date)
+            refresh_product_poi_mappings(
+                db,
+                [
+                    {"id": product_id, "name": route_name}
+                    for route_name, product_id in products_by_name.items()
+                ],
+            )
+
+        if not defer_finalize:
+            refresh_materialized_summaries(db, target_date)
         db.commit()
-        clear_runtime_caches()
+        if not defer_finalize:
+            clear_runtime_caches()
     except HTTPException:
         db.rollback()
         raise
@@ -305,16 +351,18 @@ async def upload_batch(
         raise HTTPException(status_code=400, detail="Batch files, dates, and types length mismatch")
 
     results = []
+    affected_dates = set()
     for index, file in enumerate(files):
         file_type = str(parsed_types[index]).strip()
         file_date = str(parsed_dates[index]).strip()
         try:
             if file_type == "commodity":
-                response = await upload_file(date=file_date, file=file, db=db)
+                response = await _upload_file_impl(date=file_date, file=file, db=db, defer_finalize=True)
             elif file_type == "order":
-                response = upload_orders(file=file, date=file_date, db=db)
+                response = _upload_orders_impl(file=file, date=file_date, db=db, defer_finalize=True)
             else:
                 raise HTTPException(status_code=400, detail=f"Unsupported file type: {file_type}")
+            affected_dates.add(datetime.strptime(file_date, "%Y-%m-%d").date())
             results.append({
                 "index": index,
                 "status": "success",
@@ -337,6 +385,19 @@ async def upload_batch(
                 "error": str(exc),
             })
 
+    if affected_dates:
+        try:
+            refresh_materialized_summaries_for_dates(db, affected_dates)
+            db.commit()
+            clear_runtime_caches()
+        except Exception as exc:
+            db.rollback()
+            affected_date_keys = {target_date.strftime("%Y-%m-%d") for target_date in affected_dates}
+            for item in results:
+                if item.get("status") == "success" and str(parsed_dates[item["index"]]).strip() in affected_date_keys:
+                    item["status"] = "fail"
+                    item["error"] = f"Failed to refresh summaries: {exc}"
+
     success_count = sum(1 for item in results if item["status"] == "success")
     fail_count = len(results) - success_count
     return {
@@ -346,6 +407,22 @@ async def upload_batch(
     }
 
 
+def delete_data_for_target_date(target_date, date_label, db, defer_finalize=False):
+    deleted = db.query(models.DailyData).filter(models.DailyData.date == target_date).delete()
+    deleted_reviews = db.query(models.PendingOrder).filter(models.PendingOrder.date == target_date).delete()
+    if not defer_finalize:
+        refresh_materialized_summaries(db, target_date)
+        db.commit()
+        clear_runtime_caches()
+
+    if deleted > 0 or deleted_reviews > 0:
+        msg = f"成功清除了 {date_label} 的全部数据"
+        if deleted_reviews > 0:
+            msg += f"，并移除了 {deleted_reviews} 条审核订单记录"
+        return {"message": msg, "affected": True}
+    return {"message": f"{date_label} 当天没有可删除的数据", "affected": False}
+
+
 @router.delete("/data")
 def delete_data(date: str, db: Session = Depends(get_db)):
     try:
@@ -353,19 +430,8 @@ def delete_data(date: str, db: Session = Depends(get_db)):
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format")
 
-    deleted = db.query(models.DailyData).filter(models.DailyData.date == target_date).delete()
-    deleted_reviews = db.query(models.PendingOrder).filter(models.PendingOrder.date == target_date).delete()
-    refresh_materialized_summaries(db, target_date)
-    db.commit()
-    clear_runtime_caches()
-
-    if deleted > 0 or deleted_reviews > 0:
-        msg = f"成功清除了 {date} 的全部数据"
-        if deleted_reviews > 0:
-            msg += f"，并移除了 {deleted_reviews} 条审核订单记录"
-        return {"message": msg}
-    else:
-        return {"message": f"{date} 当天没有可删除的数据"}
+    response = delete_data_for_target_date(target_date, date, db)
+    return {"message": response["message"]}
 
 
 @router.post("/data/batch_delete")
@@ -375,10 +441,13 @@ def delete_data_batch(payload: dict = Body(...), db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="dates must be an array")
 
     results = []
+    affected_dates = set()
     for index, raw_date in enumerate(dates):
         date_value = str(raw_date).strip()
         try:
-            response = delete_data(date=date_value, db=db)
+            target_date = datetime.strptime(date_value, "%Y-%m-%d").date()
+            response = delete_data_for_target_date(target_date, date_value, db, defer_finalize=True)
+            affected_dates.add(target_date)
             results.append({
                 "index": index,
                 "date": date_value,
@@ -401,6 +470,19 @@ def delete_data_batch(payload: dict = Body(...), db: Session = Depends(get_db)):
                 "status": "fail",
                 "error": str(exc),
             })
+
+    if affected_dates:
+        try:
+            refresh_materialized_summaries_for_dates(db, affected_dates)
+            db.commit()
+            clear_runtime_caches()
+        except Exception as exc:
+            db.rollback()
+            affected_date_keys = {target_date.strftime("%Y-%m-%d") for target_date in affected_dates}
+            for item in results:
+                if item.get("status") == "success" and item.get("date") in affected_date_keys:
+                    item["status"] = "fail"
+                    item["error"] = f"Failed to refresh summaries: {exc}"
 
     success_count = sum(1 for item in results if item["status"] == "success")
     fail_count = len(results) - success_count

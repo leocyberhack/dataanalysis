@@ -1,6 +1,7 @@
 import calendar
 import json
 import re
+from collections import defaultdict
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -9,7 +10,13 @@ from sqlalchemy.orm import Session
 import models
 from deps import get_db
 from schemas import PlanCreateRequest
-from services import compute_compare_overall_metric, parse_compare_metrics
+from services import (
+    clear_runtime_caches,
+    compute_compare_overall_metric,
+    compute_compare_overall_metrics_by_month,
+    get_cached_response,
+    parse_compare_metrics,
+)
 
 
 router = APIRouter()
@@ -79,7 +86,7 @@ def load_plan_month_targets(plan, months):
     }
 
 
-def serialize_plan(plan, db):
+def serialize_plan(plan, db, actual_values_by_month=None):
     months = split_stored_list(plan.months)
     poi_names = split_stored_list(plan.poi_names)
     month_targets = load_plan_month_targets(plan, months)
@@ -87,15 +94,18 @@ def serialize_plan(plan, db):
 
     for month in months:
         target_value = month_targets.get(month, 0)
-        start_date, end_date = get_month_range(month)
-        actual_value = compute_compare_overall_metric(
-            db=db,
-            start_date=start_date,
-            end_date=end_date,
-            metric=plan.metric,
-            poi_names=poi_names if plan.poi_mode == "selected" else None,
-            poi_scope=plan.poi_mode != "selected",
-        )
+        if actual_values_by_month is None:
+            start_date, end_date = get_month_range(month)
+            actual_value = compute_compare_overall_metric(
+                db=db,
+                start_date=start_date,
+                end_date=end_date,
+                metric=plan.metric,
+                poi_names=poi_names if plan.poi_mode == "selected" else None,
+                poi_scope=plan.poi_mode == "selected",
+            )
+        else:
+            actual_value = actual_values_by_month.get(month, 0)
         actual_value = float(actual_value or 0)
         percentage = (actual_value / target_value * 100) if target_value > 0 else 0
         progress.append({
@@ -119,10 +129,67 @@ def serialize_plan(plan, db):
     }
 
 
+def get_plan_scope_key(plan):
+    poi_names = split_stored_list(plan.poi_names)
+    if plan.poi_mode == "selected":
+        return "selected", tuple(poi_names)
+    return "all", ()
+
+
+def get_plan_months(plan):
+    return split_stored_list(plan.months)
+
+
+def serialize_plans_with_batch_progress(plans, db):
+    grouped_months = defaultdict(set)
+    for plan in plans:
+        scope_key = get_plan_scope_key(plan)
+        grouped_months[(plan.metric, scope_key)].update(get_plan_months(plan))
+
+    actual_values = {}
+    for (metric, scope_key), months in grouped_months.items():
+        scope_mode, scope_pois = scope_key
+        month_values = compute_compare_overall_metrics_by_month(
+            db=db,
+            months=sorted(months),
+            metric=metric,
+            poi_names=list(scope_pois) if scope_mode == "selected" else None,
+            poi_scope=scope_mode == "selected",
+        )
+        for month, value in month_values.items():
+            actual_values[(metric, scope_key, month)] = value
+
+    serialized = []
+    for plan in plans:
+        scope_key = get_plan_scope_key(plan)
+        plan_values = {
+            month: actual_values.get((plan.metric, scope_key, month), 0)
+            for month in get_plan_months(plan)
+        }
+        serialized.append(serialize_plan(plan, db, actual_values_by_month=plan_values))
+    return serialized
+
+
 @router.get("/plans")
 def get_plans(db: Session = Depends(get_db)):
     plans = db.query(models.Plan).order_by(models.Plan.id.desc()).all()
-    return [serialize_plan(plan, db) for plan in plans]
+    cache_key = tuple(
+        (
+            plan.id,
+            plan.metric,
+            plan.target_value,
+            plan.month_targets,
+            plan.poi_mode,
+            plan.poi_names,
+            plan.months,
+        )
+        for plan in plans
+    )
+    return get_cached_response(
+        "plans",
+        cache_key,
+        lambda: serialize_plans_with_batch_progress(plans, db),
+    )
 
 
 @router.post("/plans")
@@ -154,6 +221,7 @@ def create_plan(request: PlanCreateRequest, db: Session = Depends(get_db)):
     db.add(plan)
     db.commit()
     db.refresh(plan)
+    clear_runtime_caches()
     return serialize_plan(plan, db)
 
 
@@ -187,6 +255,7 @@ def update_plan(plan_id: int, request: PlanCreateRequest, db: Session = Depends(
     plan.months = ",".join(months)
     db.commit()
     db.refresh(plan)
+    clear_runtime_caches()
     return serialize_plan(plan, db)
 
 
@@ -198,4 +267,5 @@ def delete_plan(plan_id: int, db: Session = Depends(get_db)):
 
     db.delete(plan)
     db.commit()
+    clear_runtime_caches()
     return {"message": "Plan deleted"}

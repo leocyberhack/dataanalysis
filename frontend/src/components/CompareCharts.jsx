@@ -1,6 +1,6 @@
 import { memo, useMemo } from 'react';
 import ReactEChartsCore from 'echarts-for-react/lib/core';
-import { echarts } from '../lib/echarts';
+import { echarts, getLargeLineSeriesOptions, getRendererForPointCount } from '../lib/echarts';
 
 const truncateLabel = (value, limit) => (
   value.length > limit ? `${value.substring(0, limit)}...` : value
@@ -32,21 +32,27 @@ function CompareCharts({ aggregatedRows, rawData, trendDates, selectedMetrics, m
     });
 
     const legend = [];
+    const linePerformanceOptions = getLargeLineSeriesOptions(rankedGroups.length, xAxisDates.length, 8);
     const series = rankedGroups.map((group) => {
       const shortName = truncateLabel(group.group_name || group.group_key, 8);
       legend.push(shortName);
 
       return {
+        ...linePerformanceOptions,
         name: shortName,
         type: 'line',
         smooth: true,
-        symbolSize: 8,
         data: xAxisDates.map((date) => valueByGroupDate.get(`${group.group_key}::${date}`) ?? 0),
         emphasis: { focus: 'series' },
       };
     });
 
-    return { legend, series, xAxisDates };
+    return {
+      legend,
+      renderer: getRendererForPointCount(rankedGroups.length, xAxisDates.length),
+      series,
+      xAxisDates,
+    };
   }, [activeMetric, aggregatedRows, rawData, trendDates]);
 
   const topAverageRows = useMemo(() => {
@@ -187,7 +193,13 @@ function CompareCharts({ aggregatedRows, rawData, trendDates, selectedMetrics, m
     <>
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: '24px', marginBottom: '24px' }}>
         <div className="chart-container compare-chart-panel">
-          <ReactEChartsCore echarts={echarts} option={lineChartOption} style={{ height: '100%' }} opts={{ renderer: 'svg' }} />
+          <ReactEChartsCore
+            key={`compare-line-${lineChartModel.renderer}`}
+            echarts={echarts}
+            option={lineChartOption}
+            style={{ height: '100%' }}
+            opts={{ renderer: lineChartModel.renderer }}
+          />
         </div>
       </div>
 

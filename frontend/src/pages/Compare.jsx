@@ -3,13 +3,11 @@ import DatePicker, { registerLocale } from 'react-datepicker';
 import { zhCN } from 'date-fns/locale';
 import 'react-datepicker/dist/react-datepicker.css';
 import {
-  getCompareAggregate,
-  getCompareTrend,
+  getCompareReport,
   getDateStatus,
   getDates,
   getPois,
   getProducts,
-  getSummary,
 } from '../api';
 import CompareSelectorCard from '../components/CompareSelectorCard';
 import SummaryMetricsGrid from '../components/SummaryMetricsGrid';
@@ -47,11 +45,6 @@ const resolveVirtualScrollContainer = (tableWrapperElement) => {
 
   return containerUsesOwnScroll ? scrollContainer : null;
 };
-
-const getTopTrendGroupKeys = (rows, metric, limit = TREND_SERIES_LIMIT) => [...rows]
-  .sort((left, right) => (right[`${metric}_total`] || 0) - (left[`${metric}_total`] || 0))
-  .slice(0, limit)
-  .map((row) => row.group_key);
 
 const DEFAULT_METRICS = [];
 
@@ -390,34 +383,20 @@ const Compare = () => {
     setErrorMessage('');
 
     try {
-      const [aggregateData, summaryData] = await Promise.all([
-        getCompareAggregate(startStr, endStr, activeFilters, selectedMetrics),
-        getSummary(startStr, endStr, activeFilters),
-      ]);
+      const reportData = await getCompareReport(
+        startStr,
+        endStr,
+        activeFilters,
+        selectedMetrics,
+        activeTrendMetric,
+        TREND_SERIES_LIMIT,
+      );
+      const aggregateData = reportData.aggregate || {};
+      const summaryData = reportData.summary || null;
       const nextAggregatedRows = aggregateData.rows || [];
-      let trendData = [];
-      let nextTrendDates = [];
-
-      if (activeTrendMetric) {
-        const topTrendGroupKeys = getTopTrendGroupKeys(nextAggregatedRows, activeTrendMetric);
-        if (topTrendGroupKeys.length > 0) {
-          try {
-            const trendResponse = await getCompareTrend(
-              startStr,
-              endStr,
-              activeTrendMetric,
-              {
-                mode: analysisMode,
-                values: topTrendGroupKeys,
-              },
-            );
-            trendData = trendResponse.rows || [];
-            nextTrendDates = trendResponse.dates || [];
-          } catch (trendError) {
-            console.error(trendError);
-          }
-        }
-      }
+      const trendResponse = reportData.trend || {};
+      const trendData = activeTrendMetric ? (trendResponse.rows || []) : [];
+      const nextTrendDates = activeTrendMetric ? (trendResponse.dates || []) : [];
 
       setRawData(trendData);
       setTrendDates(nextTrendDates);

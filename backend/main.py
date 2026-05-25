@@ -1,6 +1,7 @@
 import os
+import hashlib
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
@@ -9,6 +10,7 @@ from database import engine
 from deps import get_db
 from routes_compare import (
     get_compare_aggregate,
+    get_compare_report,
     get_compare_trend,
     get_poi_insight,
     router as compare_router,
@@ -67,6 +69,7 @@ from services import (
     clear_runtime_caches,
     get_pois,
     get_product_ids_for_pois,
+    get_response_cache_token,
     compute_display_metric_value,
     compute_total_rate,
     ensure_daily_product_summaries,
@@ -106,18 +109,48 @@ app.add_middleware(
 
 @app.middleware("http")
 async def add_cache_headers(request, call_next):
-    response = await call_next(request)
     cache_ttl_by_path = {
         "/dates": 30,
         "/date_status": 30,
         "/products": 60,
         "/pois": 60,
         "/plans": 30,
+        "/summary": 30,
+        "/summary/rankings": 30,
+        "/compare/aggregate": 60,
+        "/compare/trend": 60,
+        "/compare/report": 60,
+        "/poi/insight": 60,
+        "/deep_analysis": 60,
     }
     ttl = cache_ttl_by_path.get(request.url.path)
+    etag = None
+    if request.method == "GET" and ttl:
+        cache_params = tuple(
+            sorted(
+                (key, value)
+                for key, value in request.query_params.multi_items()
+                if key != "_v"
+            )
+        )
+        raw_etag = repr((get_response_cache_token(), request.url.path, cache_params)).encode("utf-8")
+        etag = f'W/"{hashlib.sha256(raw_etag).hexdigest()[:24]}"'
+        if request.headers.get("if-none-match") == etag:
+            return Response(
+                status_code=304,
+                headers={
+                    "ETag": etag,
+                    "Cache-Control": f"private, max-age={ttl}",
+                    "Vary": "Accept-Encoding",
+                },
+            )
+
+    response = await call_next(request)
     if request.method == "GET" and ttl and response.status_code == 200:
         response.headers.setdefault("Cache-Control", f"private, max-age={ttl}")
         response.headers.setdefault("Vary", "Accept-Encoding")
+        if etag:
+            response.headers.setdefault("ETag", etag)
     return response
 
 app.include_router(upload_router)
@@ -158,6 +191,7 @@ __all__ = [
     "ensure_daily_product_summaries",
     "ensure_daily_summaries",
     "get_compare_aggregate",
+    "get_compare_report",
     "get_compare_trend",
     "get_poi_insight",
     "get_data",

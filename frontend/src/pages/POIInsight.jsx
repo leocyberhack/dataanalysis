@@ -18,7 +18,7 @@ import {
   parseStoredDate,
 } from '../utils/date';
 import { createDateStatusDayRenderer } from '../utils/dateStatusDayRenderer';
-import { echarts } from '../lib/echarts';
+import { echarts, getLargeLineSeriesOptions, getRendererForPointCount } from '../lib/echarts';
 
 registerLocale('zh-CN', zhCN);
 
@@ -268,48 +268,52 @@ const buildTrendOption = ({ metric, trendRows, trendDates, groupNames }) => {
   });
 
   const groups = Array.from(groupNames.entries());
+  const linePerformanceOptions = getLargeLineSeriesOptions(groups.length, trendDates.length);
   return {
-    title: {
-      text: `${metric.label} 趋势`,
-      textStyle: { fontSize: 14, color: 'var(--text-main)', fontWeight: 'normal' },
-    },
-    tooltip: {
-      trigger: 'axis',
-      backgroundColor: 'rgba(255,255,255,0.94)',
-      borderColor: 'var(--glass-border)',
-      valueFormatter: (value) => formatValue(value, metric.type),
-    },
-    legend: {
-      type: 'scroll',
-      top: 0,
-      right: 0,
-      width: '58%',
-      data: groups.map(([, name]) => name),
-      textStyle: { color: 'var(--text-muted)' },
-    },
-    grid: { left: '3%', right: '4%', bottom: '5%', top: '48px', containLabel: true },
-    xAxis: {
-      type: 'category',
-      boundaryGap: false,
-      data: trendDates,
-      axisLabel: { color: 'var(--text-muted)' },
-    },
-    yAxis: {
-      type: 'value',
-      axisLabel: {
-        color: 'var(--text-muted)',
-        formatter: (value) => metric.type === 'percent' ? `${value}%` : value,
+    option: {
+      title: {
+        text: `${metric.label} 趋势`,
+        textStyle: { fontSize: 14, color: 'var(--text-main)', fontWeight: 'normal' },
       },
-      splitLine: { lineStyle: { color: 'var(--glass-border)' } },
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: 'rgba(255,255,255,0.94)',
+        borderColor: 'var(--glass-border)',
+        valueFormatter: (value) => formatValue(value, metric.type),
+      },
+      legend: {
+        type: 'scroll',
+        top: 0,
+        right: 0,
+        width: '58%',
+        data: groups.map(([, name]) => name),
+        textStyle: { color: 'var(--text-muted)' },
+      },
+      grid: { left: '3%', right: '4%', bottom: '5%', top: '48px', containLabel: true },
+      xAxis: {
+        type: 'category',
+        boundaryGap: false,
+        data: trendDates,
+        axisLabel: { color: 'var(--text-muted)' },
+      },
+      yAxis: {
+        type: 'value',
+        axisLabel: {
+          color: 'var(--text-muted)',
+          formatter: (value) => metric.type === 'percent' ? `${value}%` : value,
+        },
+        splitLine: { lineStyle: { color: 'var(--glass-border)' } },
+      },
+      series: groups.map(([groupKey, groupName]) => ({
+        ...linePerformanceOptions,
+        name: groupName,
+        type: 'line',
+        smooth: true,
+        data: trendDates.map((date) => valueByGroupDate.get(`${groupKey}::${date}`) ?? 0),
+        emphasis: { focus: 'series' },
+      })),
     },
-    series: groups.map(([groupKey, groupName]) => ({
-      name: groupName,
-      type: 'line',
-      smooth: true,
-      symbolSize: 7,
-      data: trendDates.map((date) => valueByGroupDate.get(`${groupKey}::${date}`) ?? 0),
-      emphasis: { focus: 'series' },
-    })),
+    renderer: getRendererForPointCount(groups.length, trendDates.length),
   };
 };
 
@@ -684,7 +688,7 @@ function POIInsight() {
           <div className="poi-chart-grid mb-32">
             {config.metrics.map((metric) => {
               const trendPayload = trendPayloads[metric.key] || { dates: [], rows: [], groupNames: new Map() };
-              const chartOption = buildTrendOption({
+              const chartModel = buildTrendOption({
                 metric,
                 trendRows: trendPayload.rows,
                 trendDates: trendPayload.dates,
@@ -694,7 +698,13 @@ function POIInsight() {
               return (
                 <div className="chart-container poi-chart-panel" key={`${metric.key}-trend`}>
                   {trendPayload.rows.length > 0 ? (
-                    <ReactEChartsCore echarts={echarts} option={chartOption} style={{ height: '100%' }} opts={{ renderer: 'svg' }} />
+                    <ReactEChartsCore
+                      key={`${metric.key}-${chartModel.renderer}`}
+                      echarts={echarts}
+                      option={chartModel.option}
+                      style={{ height: '100%' }}
+                      opts={{ renderer: chartModel.renderer }}
+                    />
                   ) : (
                     <div className="poi-empty">暂无趋势数据</div>
                   )}

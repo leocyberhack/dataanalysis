@@ -5,6 +5,7 @@ const defaultApiUrl = isLocalDevHost
   ? `http://${window.location.hostname}:8001`
   : '';
 const GET_CACHE_TTL_MS = 30 * 1000;
+const LARGE_RESPONSE_CACHE_OPTIONS = { clone: false };
 const getResponseCache = new Map();
 const inflightGetRequests = new Map();
 let cacheVersion = 0;
@@ -44,18 +45,23 @@ const invalidateApiCache = () => {
   getResponseCache.clear();
 };
 
-const cachedGet = async (endpoint, params = {}, ttlMs = GET_CACHE_TTL_MS) => {
+const maybeCloneCachedValue = (value, shouldClone) => (
+  shouldClone ? cloneCachedValue(value) : value
+);
+
+const cachedGet = async (endpoint, params = {}, ttlMs = GET_CACHE_TTL_MS, options = {}) => {
+  const shouldClone = options.clone !== false;
   const requestVersion = cacheVersion;
   const cacheKey = `${requestVersion}:${buildCacheKey(endpoint, params)}`;
   const cachedEntry = getResponseCache.get(cacheKey);
   const now = Date.now();
 
   if (cachedEntry && now - cachedEntry.timestamp < ttlMs && cachedEntry.version === cacheVersion) {
-    return cloneCachedValue(cachedEntry.value);
+    return maybeCloneCachedValue(cachedEntry.value, shouldClone);
   }
 
   if (inflightGetRequests.has(cacheKey)) {
-    return cloneCachedValue(await inflightGetRequests.get(cacheKey));
+    return maybeCloneCachedValue(await inflightGetRequests.get(cacheKey), shouldClone);
   }
 
   const requestPromise = api.get(endpoint, {
@@ -79,7 +85,7 @@ const cachedGet = async (endpoint, params = {}, ttlMs = GET_CACHE_TTL_MS) => {
   });
 
   inflightGetRequests.set(cacheKey, requestPromise);
-  return cloneCachedValue(await requestPromise);
+  return maybeCloneCachedValue(await requestPromise, shouldClone);
 };
 
 export const uploadData = async (date, file) => {
@@ -190,7 +196,7 @@ export const getDetailedData = async (startDate, endDate, productIds = null) => 
   if (productIds && productIds.length > 0) {
     params.productIds = productIds.join(',');
   }
-  return cachedGet('/data', params);
+  return cachedGet('/data', params, GET_CACHE_TTL_MS, LARGE_RESPONSE_CACHE_OPTIONS);
 };
 
 export const getCompareAggregate = async (startDate, endDate, filters = null, metrics = null) => {
@@ -200,7 +206,28 @@ export const getCompareAggregate = async (startDate, endDate, filters = null, me
   if (metrics && metrics.length > 0) {
     params.metrics = metrics.join(',');
   }
-  return cachedGet('/compare/aggregate', params);
+  return cachedGet('/compare/aggregate', params, GET_CACHE_TTL_MS, LARGE_RESPONSE_CACHE_OPTIONS);
+};
+
+export const getCompareReport = async (
+  startDate,
+  endDate,
+  filters = null,
+  metrics = null,
+  trendMetric = '',
+  trendLimit = 5,
+) => {
+  const params = { startDate, endDate };
+  const normalizedFilters = appendGroupFilters(params, filters);
+  params.groupBy = normalizedFilters.mode;
+  if (metrics && metrics.length > 0) {
+    params.metrics = metrics.join(',');
+  }
+  if (trendMetric) {
+    params.trendMetric = trendMetric;
+    params.trendLimit = trendLimit;
+  }
+  return cachedGet('/compare/report', params, GET_CACHE_TTL_MS, LARGE_RESPONSE_CACHE_OPTIONS);
 };
 
 export const getPoiProductMetricBreakdown = async (startDate, endDate, poiName, metrics = null) => {
@@ -213,7 +240,7 @@ export const getPoiProductMetricBreakdown = async (startDate, endDate, poiName, 
   if (metrics && metrics.length > 0) {
     params.metrics = metrics.join(',');
   }
-  return cachedGet('/compare/aggregate', params);
+  return cachedGet('/compare/aggregate', params, GET_CACHE_TTL_MS, LARGE_RESPONSE_CACHE_OPTIONS);
 };
 
 const normalizeCompareTrendResponse = (payload) => {
@@ -247,7 +274,7 @@ export const getCompareTrend = async (startDate, endDate, metric, filters = null
   };
   const normalizedFilters = appendGroupFilters(params, filters);
   params.groupBy = normalizedFilters.mode;
-  const payload = await cachedGet('/compare/trend', params);
+  const payload = await cachedGet('/compare/trend', params, GET_CACHE_TTL_MS, LARGE_RESPONSE_CACHE_OPTIONS);
   return normalizeCompareTrendResponse(payload);
 };
 
@@ -259,7 +286,7 @@ export const getPoiInsight = async (startDate, endDate, previousStartDate, previ
     previousEndDate,
     metrics: metrics.join(','),
   };
-  return cachedGet('/poi/insight', params);
+  return cachedGet('/poi/insight', params, GET_CACHE_TTL_MS, LARGE_RESPONSE_CACHE_OPTIONS);
 };
 
 export const deleteData = async (date) => {
@@ -311,15 +338,14 @@ export const deletePendingOrder = async (orderId) => {
   return res.data;
 };
 
-export const getPlans = async () => cachedGet('/plans');
+export const getPlans = async () => cachedGet('/plans', {}, GET_CACHE_TTL_MS, LARGE_RESPONSE_CACHE_OPTIONS);
 
 export const getDeepAnalysis = async (poiName = '') => {
   const params = {};
   if (poiName) {
     params.poiNames = poiName;
   }
-  const res = await api.get('/deep_analysis', { params });
-  return res.data;
+  return cachedGet('/deep_analysis', params, 60 * 1000, LARGE_RESPONSE_CACHE_OPTIONS);
 };
 
 export const createPlan = async (payload) => {

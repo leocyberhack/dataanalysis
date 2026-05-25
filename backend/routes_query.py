@@ -1,6 +1,7 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 import models
@@ -8,10 +9,10 @@ from deps import get_db
 from services import (
     PRODUCT_INDEX,
     apply_product_filter,
+    build_summary_payload,
     build_summary_rankings,
-    compute_total_rate,
+    get_cached_response,
     get_pois,
-    get_product_ids_for_pois,
     parse_poi_names,
     parse_product_ids,
 )
@@ -87,36 +88,17 @@ def get_summary(
     if parsed_product_ids and parsed_poi_names:
         raise HTTPException(status_code=400, detail="Product and POI filters cannot be combined")
 
-    if parsed_poi_names:
-        parsed_product_ids = get_product_ids_for_pois(db, parsed_poi_names)
-        if not parsed_product_ids:
-            return {"today": None, "yesterday": None, "has_yesterday": False}
-    calc_today = compute_total_rate(db, start_dt, end_dt, parsed_product_ids)
-    if not calc_today:
-        return {"today": None, "yesterday": None, "has_yesterday": False}
-
-    delta_days = (end_dt - start_dt).days + 1
-    prev_end_dt = start_dt - timedelta(days=1)
-    prev_start_dt = start_dt - timedelta(days=delta_days)
-
-    calc_yesterday = compute_total_rate(db, prev_start_dt, prev_end_dt, parsed_product_ids)
-
-    changes = {}
-    if calc_yesterday:
-        for k in calc_today:
-            old_val = calc_yesterday[k]
-            new_val = calc_today[k]
-            if old_val == 0:
-                changes[k] = 100.0 if new_val > 0 else 0.0
-            else:
-                changes[k] = ((new_val - old_val) / old_val) * 100
-
-    return {
-        "today": calc_today,
-        "yesterday": calc_yesterday,
-        "changes": changes,
-        "has_yesterday": bool(calc_yesterday),
-    }
+    return get_cached_response(
+        "summary",
+        (start_dt, end_dt, tuple(parsed_product_ids), tuple(parsed_poi_names)),
+        lambda: build_summary_payload(
+            db=db,
+            start_date=start_dt,
+            end_date=end_dt,
+            product_ids=parsed_product_ids,
+            poi_names=parsed_poi_names,
+        ),
+    )
 
 
 @router.get("/summary/rankings")
@@ -131,30 +113,107 @@ def get_summary_rankings(
     except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="Invalid date format")
 
-    return build_summary_rankings(db, start_dt, end_dt)
+    return get_cached_response(
+        "summary_rankings",
+        (start_dt, end_dt),
+        lambda: build_summary_rankings(db, start_dt, end_dt),
+    )
 
 
 @router.get("/data")
-def get_data(startDate: str, endDate: str, productIds: str = None, db: Session = Depends(get_db)):
+def get_data(
+    startDate: str,
+    endDate: str,
+    productIds: str = None,
+    limit: int = None,
+    offset: int = None,
+    fields: str = None,
+    includeTotal: bool = False,
+    db: Session = Depends(get_db),
+):
     try:
         start = datetime.strptime(startDate, "%Y-%m-%d").date()
         end = datetime.strptime(endDate, "%Y-%m-%d").date()
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid dates")
 
-    query = db.query(models.DailyData, models.Product.name.label("product_name"))\
+    parsed_product_ids = parse_product_ids(productIds)
+    advanced_response = fields is not None or limit is not None or offset not in (None, 0) or includeTotal
+
+    if limit is not None and limit <= 0:
+        raise HTTPException(status_code=400, detail="limit must be greater than 0")
+    if offset is not None and offset < 0:
+        raise HTTPException(status_code=400, detail="offset cannot be negative")
+
+    if not advanced_response:
+        query = db.query(models.DailyData, models.Product.name.label("product_name"))\
+            .join(models.Product, models.DailyData.product_id == models.Product.id)\
+            .filter(models.DailyData.date >= start, models.DailyData.date <= end)
+
+        query = apply_product_filter(query, parsed_product_ids)
+
+        results = query.all()
+
+        out = []
+        for r, pname in results:
+            row_dict = {c.name: getattr(r, c.name) for c in r.__table__.columns}
+            row_dict["product_name"] = pname
+            row_dict["date"] = row_dict["date"].strftime("%Y-%m-%d")
+            out.append(row_dict)
+
+        return out
+
+    data_columns = {column.name: getattr(models.DailyData, column.name) for column in models.DailyData.__table__.columns}
+    allowed_fields = set(data_columns) | {"product_name"}
+    if fields:
+        selected_fields = [item.strip() for item in fields.split(",") if item.strip()]
+    else:
+        selected_fields = [*data_columns.keys(), "product_name"]
+    if not selected_fields:
+        raise HTTPException(status_code=400, detail="At least one field is required")
+
+    invalid_fields = [field for field in selected_fields if field not in allowed_fields]
+    if invalid_fields:
+        raise HTTPException(status_code=400, detail=f"Invalid fields: {', '.join(invalid_fields)}")
+
+    selected_columns = [
+        models.Product.name.label("product_name") if field == "product_name" else data_columns[field]
+        for field in selected_fields
+    ]
+
+    query = db.query(*selected_columns)\
+        .select_from(models.DailyData)\
         .join(models.Product, models.DailyData.product_id == models.Product.id)\
         .filter(models.DailyData.date >= start, models.DailyData.date <= end)
+    query = apply_product_filter(query, parsed_product_ids)
 
-    query = apply_product_filter(query, parse_product_ids(productIds))
+    total = None
+    if includeTotal:
+        count_query = db.query(func.count(models.DailyData.id)).filter(
+            models.DailyData.date >= start,
+            models.DailyData.date <= end,
+        )
+        count_query = apply_product_filter(count_query, parsed_product_ids)
+        total = count_query.scalar() or 0
 
-    results = query.all()
+    query = query.order_by(models.DailyData.date.desc(), models.DailyData.product_id.asc())
+    offset_value = offset or 0
+    if offset_value:
+        query = query.offset(offset_value)
+    if limit is not None:
+        query = query.limit(min(limit, 5000))
 
-    out = []
-    for r, pname in results:
-        row_dict = {c.name: getattr(r, c.name) for c in r.__table__.columns}
-        row_dict["product_name"] = pname
-        row_dict["date"] = row_dict["date"].strftime("%Y-%m-%d")
-        out.append(row_dict)
+    rows = []
+    for row in query.all():
+        row_dict = dict(row._mapping)
+        if "date" in row_dict and row_dict["date"] is not None:
+            row_dict["date"] = row_dict["date"].strftime("%Y-%m-%d")
+        rows.append(row_dict)
 
-    return out
+    return {
+        "rows": rows,
+        "total": total,
+        "limit": min(limit, 5000) if limit is not None else None,
+        "offset": offset_value,
+        "fields": selected_fields,
+    }
