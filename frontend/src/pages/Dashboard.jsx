@@ -7,6 +7,7 @@ import { getDateStatus, getDates, getSummary, getSummaryRankings } from '../api'
 import SummaryMetricsGrid from '../components/SummaryMetricsGrid';
 import SummaryRankings from '../components/SummaryRankings';
 import { formatDateRangeKeys, parseStoredDate } from '../utils/date';
+import { datePickerPopperProps } from '../utils/datePickerPopper';
 import { createDateStatusDayRenderer } from '../utils/dateStatusDayRenderer';
 
 registerLocale('zh-CN', zhCN);
@@ -126,6 +127,7 @@ const Dashboard = () => {
           <div className="mobile-date-row" style={{ display: 'flex', gap: '12px', alignItems: 'center', justifyContent: 'center' }}>
             <div className="status-datepicker-wrapper is-dashboard mobile-full-width">
               <DatePicker
+                {...datePickerPopperProps}
                 selectsRange
                 startDate={pickerStartDate}
                 endDate={pickerEndDate}

@@ -325,8 +325,21 @@ body::after {
   width: 100%;
 }
 
+#date-picker-portal-root {
+  position: relative;
+  z-index: 5000;
+}
+
 .react-datepicker-popper {
-  z-index: 3000 !important;
+  z-index: 5000 !important;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.react-datepicker-popper .react-datepicker {
+  max-width: calc(100vw - 24px);
 }
 
 .poi-analysis-datepicker-popper {
@@ -337,7 +350,8 @@ body::after {
   width: 300px;
 }
 
-.status-datepicker-wrapper .react-datepicker {
+.status-datepicker-wrapper .react-datepicker,
+.status-datepicker-calendar {
   font-family: inherit;
   border: 1px solid var(--glass-border);
   border-radius: 16px;
@@ -346,16 +360,19 @@ body::after {
   font-size: 1.2rem;
 }
 
-.status-datepicker-wrapper .react-datepicker__current-month {
+.status-datepicker-wrapper .react-datepicker__current-month,
+.status-datepicker-calendar .react-datepicker__current-month {
   font-size: 1.5em;
   padding-bottom: 8px;
 }
 
-.status-datepicker-wrapper .react-datepicker__navigation {
+.status-datepicker-wrapper .react-datepicker__navigation,
+.status-datepicker-calendar .react-datepicker__navigation {
   top: 20px;
 }
 
-.status-datepicker-wrapper .react-datepicker__navigation-icon::before {
+.status-datepicker-wrapper .react-datepicker__navigation-icon::before,
+.status-datepicker-calendar .react-datepicker__navigation-icon::before {
   border-width: 3px 3px 0 0;
   height: 12px;
   width: 12px;
@@ -363,7 +380,10 @@ body::after {
 
 .status-datepicker-wrapper .react-datepicker__day-name,
 .status-datepicker-wrapper .react-datepicker__day,
-.status-datepicker-wrapper .react-datepicker__time-name {
+.status-datepicker-wrapper .react-datepicker__time-name,
+.status-datepicker-calendar .react-datepicker__day-name,
+.status-datepicker-calendar .react-datepicker__day,
+.status-datepicker-calendar .react-datepicker__time-name {
   width: 4rem;
   line-height: 4rem;
   margin: 0.2rem;
@@ -2189,22 +2209,28 @@ body::after {
     margin-left: 0;
   }
 
-  .status-datepicker-wrapper .react-datepicker {
+  .status-datepicker-wrapper .react-datepicker,
+  .status-datepicker-calendar {
     padding: 10px;
     font-size: 1rem;
   }
 
-  .status-datepicker-wrapper .react-datepicker__current-month {
+  .status-datepicker-wrapper .react-datepicker__current-month,
+  .status-datepicker-calendar .react-datepicker__current-month {
     font-size: 1.15rem;
   }
 
-  .status-datepicker-wrapper .react-datepicker__navigation {
+  .status-datepicker-wrapper .react-datepicker__navigation,
+  .status-datepicker-calendar .react-datepicker__navigation {
     top: 12px;
   }
 
   .status-datepicker-wrapper .react-datepicker__day-name,
   .status-datepicker-wrapper .react-datepicker__day,
-  .status-datepicker-wrapper .react-datepicker__time-name {
+  .status-datepicker-wrapper .react-datepicker__time-name,
+  .status-datepicker-calendar .react-datepicker__day-name,
+  .status-datepicker-calendar .react-datepicker__day,
+  .status-datepicker-calendar .react-datepicker__time-name {
     width: 2.35rem !important;
     line-height: 2.35rem !important;
     margin: 0.1rem !important;
@@ -2486,6 +2512,20 @@ body::after {
 .glass-panel {
   position: relative;
   overflow: hidden;
+}
+
+/* Ensure glass panels with DatePickers don't clip the calendar popup */
+.glass-panel:has(.status-datepicker-wrapper),
+.glass-panel:has(.react-datepicker-wrapper),
+.glass-panel:has(input[type="month"]) {
+  overflow: visible !important;
+}
+
+/* Disable holographic sweep pseudo-elements on datepicker panels to prevent overflow leaks */
+.glass-panel:has(.status-datepicker-wrapper)::before,
+.glass-panel:has(.react-datepicker-wrapper)::before,
+.glass-panel:has(input[type="month"])::before {
+  display: none !important;
 }
 .glass-panel::before {
   content: '';

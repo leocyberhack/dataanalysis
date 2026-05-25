@@ -17,6 +17,7 @@ import {
   getInclusiveDayCount,
   parseStoredDate,
 } from '../utils/date';
+import { datePickerPopperProps } from '../utils/datePickerPopper';
 import { createDateStatusDayRenderer } from '../utils/dateStatusDayRenderer';
 import { echarts, getLargeLineSeriesOptions, getRendererForPointCount } from '../lib/echarts';
 
@@ -654,6 +655,7 @@ function POIInsight() {
           <div className="input-group status-datepicker-wrapper is-compare mobile-full-width">
             <label className="input-label">分析日期范围</label>
             <DatePicker
+              {...datePickerPopperProps}
               selectsRange
               startDate={pickerStartDate}
               endDate={pickerEndDate}
@@ -664,7 +666,7 @@ function POIInsight() {
               placeholderText="请选择开始和结束日期"
               showPopperArrow={false}
               className="input"
-              popperClassName="poi-analysis-datepicker-popper"
+              popperClassName="status-datepicker-popper poi-analysis-datepicker-popper"
               renderDayContents={renderDateStatusDay}
             />
           </div>

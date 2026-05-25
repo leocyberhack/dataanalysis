@@ -46,3 +46,7 @@ excel_info.txt
 
 # Zeabur files
 .zeabur/
+
+# Logs
+*.log
+

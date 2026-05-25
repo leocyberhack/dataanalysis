@@ -13,6 +13,7 @@ import DatePicker, { registerLocale } from 'react-datepicker';
 import { zhCN } from 'date-fns/locale';
 import 'react-datepicker/dist/react-datepicker.css';
 import { formatDateKey, getTodayDate } from '../utils/date';
+import { datePickerPopperProps } from '../utils/datePickerPopper';
 import { createDateStatusDayRenderer } from '../utils/dateStatusDayRenderer';
 registerLocale('zh-CN', zhCN);
 
@@ -279,6 +280,7 @@ const Upload = () => {
 
                     <div className="input-group status-datepicker-wrapper is-upload" style={{ position: 'relative', zIndex: 1000 }}>
                         <DatePicker
+                            {...datePickerPopperProps}
                             selected={date}
                             onChange={(d) => setDate(d)}
                             dateFormat="yyyy-MM-dd"

@@ -23,6 +23,7 @@ import {
   getTodayDate,
   parseStoredDate,
 } from '../utils/date';
+import { datePickerPopperProps } from '../utils/datePickerPopper';
 import { createDateStatusDayRenderer } from '../utils/dateStatusDayRenderer';
 
 registerLocale('zh-CN', zhCN);
@@ -554,6 +555,7 @@ const Compare = () => {
               </div>
             </div>
             <DatePicker
+              {...datePickerPopperProps}
               selectsRange
               startDate={pickerStartDate}
               endDate={pickerEndDate}
