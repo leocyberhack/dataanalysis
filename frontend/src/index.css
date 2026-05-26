@@ -470,6 +470,10 @@ body::after {
   line-height: 1;
 }
 
+.react-datepicker__day--today .date-status-day-number {
+  font-weight: 900;
+}
+
 .date-status-day-dots {
   display: flex;
   gap: 5px;
