@@ -471,7 +471,9 @@ body::after {
 }
 
 .react-datepicker__day--today .date-status-day-number {
-  font-weight: 900;
+  font-style: italic;
+  font-weight: 950;
+  text-shadow: 0.45px 0 0 currentColor;
 }
 
 .date-status-day-dots {
