@@ -1885,6 +1885,10 @@ body::after {
   scrollbar-color: rgba(224, 122, 95, 0.45) rgba(0, 0, 0, 0.06);
 }
 
+.review-scroll-area > .mobile-review-card {
+  flex: 0 0 auto;
+}
+
 @media (max-width: 900px) {
   :root {
     --panel-blur: 8px;
@@ -2316,6 +2320,21 @@ body::after {
 .react-datepicker__day--in-selecting-range {
   background-color: var(--accent) !important;
   color: #fff !important;
+}
+
+.react-datepicker__day--today {
+  background-color: #22c55e !important;
+  color: #ff0000 !important;
+  box-shadow: 0 10px 18px -10px rgba(34, 197, 94, 0.85) !important;
+}
+
+.react-datepicker__day--today:hover {
+  background-color: #16a34a !important;
+  color: #ff0000 !important;
+}
+
+.react-datepicker__day--today .date-status-day-number {
+  color: #ff0000;
 }
 
 .react-datepicker__day--in-selecting-range:not(.react-datepicker__day--in-range) {
