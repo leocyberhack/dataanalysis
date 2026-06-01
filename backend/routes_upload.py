@@ -1,7 +1,9 @@
 import io
 import json
+import re
 from collections import defaultdict
 from datetime import datetime
+from pathlib import Path
 from typing import List
 
 import pandas as pd
@@ -9,6 +11,7 @@ from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadF
 from sqlalchemy.orm import Session
 
 import models
+from database import DATA_DIR
 from deps import get_db
 from services import (
     COL_MAP,
@@ -24,6 +27,24 @@ from services import (
 
 
 router = APIRouter()
+UPLOAD_ARCHIVE_DIR = Path(DATA_DIR) / "uploaded_files"
+SAFE_UPLOAD_FILENAME_PATTERN = re.compile(r"[^0-9A-Za-z._\-\u4e00-\u9fff]+")
+
+
+def safe_upload_filename(filename):
+    clean_name = Path(filename or "").name.strip() or "upload.xlsx"
+    clean_name = SAFE_UPLOAD_FILENAME_PATTERN.sub("_", clean_name)
+    return clean_name[:140] or "upload.xlsx"
+
+
+def archive_uploaded_file(content, file_type, target_date, original_filename):
+    target_folder = UPLOAD_ARCHIVE_DIR / file_type / target_date.strftime("%Y-%m-%d")
+    target_folder.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S%f")
+    archive_name = f"{target_date.strftime('%Y-%m-%d')}_{timestamp}_{safe_upload_filename(original_filename)}"
+    archive_path = target_folder / archive_name
+    archive_path.write_bytes(content)
+    return archive_path
 
 
 @router.post("/upload")
@@ -153,6 +174,7 @@ async def _upload_file_impl(
 
         if not defer_finalize:
             refresh_materialized_summaries(db, target_date)
+        archive_uploaded_file(content, "commodity", target_date, file.filename)
         db.commit()
         if not defer_finalize:
             clear_runtime_caches()
@@ -316,6 +338,7 @@ def _upload_orders_impl(
 
         if not defer_finalize:
             refresh_materialized_summaries(db, target_date)
+        archive_uploaded_file(contents, "order", target_date, file.filename)
         db.commit()
         if not defer_finalize:
             clear_runtime_caches()

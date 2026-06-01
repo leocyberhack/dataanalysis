@@ -19,6 +19,10 @@ from routes_deep_analysis import (
     get_deep_analysis,
     router as deep_analysis_router,
 )
+from routes_export import (
+    download_all_cloud_data,
+    router as export_router,
+)
 from routes_query import (
     get_data,
     get_date_status,
@@ -159,6 +163,7 @@ app.include_router(compare_router)
 app.include_router(review_router)
 app.include_router(plans_router)
 app.include_router(deep_analysis_router)
+app.include_router(export_router)
 
 
 __all__ = [
@@ -188,6 +193,7 @@ __all__ = [
     "delete_order_data",
     "delete_pending_order",
     "delete_plan",
+    "download_all_cloud_data",
     "ensure_daily_product_summaries",
     "ensure_daily_summaries",
     "get_compare_aggregate",

@@ -348,6 +348,10 @@ export const getDeepAnalysis = async (poiName = '') => {
   return cachedGet('/deep_analysis', params, 60 * 1000, LARGE_RESPONSE_CACHE_OPTIONS);
 };
 
+export const downloadCloudDataArchive = async () => api.get('/data/export/all', {
+  responseType: 'blob',
+});
+
 export const createPlan = async (payload) => {
   const res = await api.post('/plans', payload);
   invalidateApiCache();

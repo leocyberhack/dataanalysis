@@ -4,6 +4,7 @@ import {
     BrainCircuit,
     CalendarCheck,
     ClipboardCheck,
+    CloudDownload,
     Coins,
     FileUp,
     LayoutDashboard,
@@ -56,6 +57,10 @@ const Sidebar = () => {
                 <NavLink to="/deep-analysis" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
                     <BrainCircuit size={20} />
                     <span>深度分析</span>
+                </NavLink>
+                <NavLink to="/cloud-data" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                    <CloudDownload size={20} />
+                    <span>云端数据下载</span>
                 </NavLink>
                 <NavLink to="/upload" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
                     <FileUp size={20} />

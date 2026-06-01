@@ -1536,6 +1536,87 @@ body::after {
   font-weight: 800;
 }
 
+.cloud-export-hero {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 20px;
+}
+
+.cloud-export-icon {
+  display: grid;
+  width: 64px;
+  height: 64px;
+  place-items: center;
+  border-radius: 22px;
+  background: linear-gradient(135deg, rgba(228, 102, 71, 0.16), rgba(245, 158, 11, 0.16));
+  color: var(--accent);
+}
+
+.cloud-export-hero h2,
+.cloud-export-card h3,
+.cloud-export-note h3 {
+  margin: 0 0 8px;
+  color: #2c241b;
+  font-size: 19px;
+  font-weight: 850;
+}
+
+.cloud-export-hero p,
+.cloud-export-card p,
+.cloud-export-note p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.cloud-export-download {
+  min-width: 168px;
+  justify-content: center;
+}
+
+.cloud-export-status {
+  border-radius: 16px;
+  font-size: 14px;
+  font-weight: 800;
+  padding: 14px 16px;
+}
+
+.cloud-export-status.is-success {
+  border: 1px solid rgba(54, 143, 78, 0.22);
+  background: rgba(54, 143, 78, 0.1);
+  color: var(--success);
+}
+
+.cloud-export-status.is-error {
+  border: 1px solid rgba(220, 38, 38, 0.2);
+  background: rgba(220, 38, 38, 0.08);
+  color: var(--danger);
+}
+
+.cloud-export-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.cloud-export-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cloud-export-card svg {
+  color: var(--accent);
+}
+
+.cloud-export-note {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 /* Top Synchronized Scrollbar */
 .top-scrollbar-wrapper {
   overflow-x: auto;
@@ -2210,6 +2291,15 @@ body::after {
 
   .deep-analysis-cache-pill {
     width: fit-content;
+  }
+
+  .cloud-export-hero,
+  .cloud-export-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cloud-export-download {
+    width: 100%;
   }
 }
 
