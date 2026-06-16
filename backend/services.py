@@ -124,6 +124,13 @@ def _run_migrations():
             conn.commit()
 
         try:
+            conn.execute(text("SELECT 1 FROM product_reviews LIMIT 1"))
+        except Exception:
+            conn.rollback()
+            models.Base.metadata.tables["product_reviews"].create(bind=engine)
+            conn.commit()
+
+        try:
             conn.execute(text("SELECT 1 FROM plans LIMIT 1"))
         except Exception:
             conn.rollback()
@@ -143,6 +150,8 @@ def _run_migrations():
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_product_summaries_date_product_id ON daily_product_summaries (date, product_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_daily_product_summaries_product_id_date ON daily_product_summaries (product_id, date)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_product_poi_map_poi_name_product_id ON product_poi_map (poi_name, product_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_product_reviews_product_time ON product_reviews (product_id, review_time)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_product_reviews_time_product ON product_reviews (review_time, product_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_plans_metric ON plans (metric)"))
         conn.commit()
 

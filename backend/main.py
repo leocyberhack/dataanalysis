@@ -46,6 +46,11 @@ from routes_plans import (
     router as plans_router,
     update_plan,
 )
+from routes_product_reviews import (
+    get_product_reviews,
+    router as product_reviews_router,
+    upload_product_reviews,
+)
 from routes_upload import (
     delete_data_batch,
     delete_commodity_data,
@@ -164,6 +169,7 @@ app.include_router(review_router)
 app.include_router(plans_router)
 app.include_router(deep_analysis_router)
 app.include_router(export_router)
+app.include_router(product_reviews_router)
 
 
 __all__ = [
@@ -211,6 +217,7 @@ __all__ = [
     "get_plans",
     "get_product_ids_for_pois",
     "get_products",
+    "get_product_reviews",
     "get_summary",
     "has_non_profit_data",
     "normalize_float_cell",
@@ -227,6 +234,7 @@ __all__ = [
     "upload_batch",
     "upload_file",
     "upload_orders",
+    "upload_product_reviews",
 ]
 
 

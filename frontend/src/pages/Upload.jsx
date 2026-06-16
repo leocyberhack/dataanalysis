@@ -4,6 +4,7 @@ import {
     uploadBatchData,
     uploadData,
     uploadOrderData,
+    uploadProductReviews,
     deleteCommodityData,
     deleteOrderData,
     deleteDataBatch,
@@ -47,6 +48,12 @@ const Upload = () => {
     const [batchFiles, setBatchFiles] = useState([]);
     const [batchLoading, setBatchLoading] = useState(false);
     const [batchMessage, setBatchMessage] = useState('');
+
+    // Product review upload state
+    const [reviewFiles, setReviewFiles] = useState([]);
+    const [reviewLoading, setReviewLoading] = useState(false);
+    const [reviewMessage, setReviewMessage] = useState('');
+    const [reviewResults, setReviewResults] = useState([]);
 
     // Batch delete state
     const [selectedDates, setSelectedDates] = useState([]);
@@ -193,6 +200,35 @@ const Upload = () => {
         });
         setBatchFiles(parsed);
         setBatchMessage('');
+    };
+
+    const handleReviewFilesSelect = (e) => {
+        const files = Array.from(e.target.files || []);
+        setReviewFiles(files);
+        setReviewResults([]);
+        setReviewMessage('');
+        e.target.value = '';
+    };
+
+    const handleReviewUpload = async () => {
+        if (reviewFiles.length === 0) {
+            setReviewMessage('请选择要上传的评价 Excel 文件');
+            return;
+        }
+
+        setReviewLoading(true);
+        setReviewMessage('');
+        setReviewResults([]);
+        try {
+            const payload = await uploadProductReviews(reviewFiles);
+            setReviewMessage(`✅ 评价数据上传完成：写入 ${payload.inserted_count || 0} 条评价，匹配 ${payload.success_count || 0} 个文件。`);
+            setReviewResults(payload.results || []);
+            setReviewFiles([]);
+        } catch (err) {
+            setReviewMessage('❌ 评价上传失败: ' + (err.response?.data?.detail || err.message));
+        } finally {
+            setReviewLoading(false);
+        }
     };
 
     const handleBatchUpload = async () => {
@@ -478,11 +514,80 @@ const Upload = () => {
                     )}
                 </div>
 
+                {/* Product Review Upload Option */}
+                <div className="glass-panel" style={{ marginTop: '0px' }}>
+                    <h3 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: '600' }}>4. 美团评价数据上传</h3>
+                    <p style={{ marginBottom: '16px', color: 'var(--text-muted)', fontSize: '14px', lineHeight: 1.7 }}>
+                        一次性上传多个产品评价 Excel 表。系统会优先按文件名里的产品 ID 匹配数据库商品，并忽略“评价平台”和“评价人”两列。
+                    </p>
+
+                    <div className="input-group mb-24">
+                        <label className={`upload-area ${reviewFiles.length > 0 ? 'drag-active' : ''}`}>
+                            <UploadCloud size={48} className="upload-icon" />
+                            <span style={{ fontSize: '16px', fontWeight: '500', marginBottom: '8px' }}>
+                                {reviewFiles.length > 0 ? `已选择 ${reviewFiles.length} 个评价文件` : '点击选择或拖拽多个评价文件到此处'}
+                            </span>
+                            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                                支持美团导出的 .xls / .xlsx 评价表
+                            </span>
+                            <input
+                                type="file"
+                                accept=".xlsx,.xls"
+                                multiple
+                                style={{ display: 'none' }}
+                                onChange={handleReviewFilesSelect}
+                            />
+                        </label>
+                    </div>
+
+                    {reviewFiles.length > 0 && (
+                        <div style={{ marginBottom: '20px', maxHeight: '160px', overflowY: 'auto', background: 'rgba(255,255,255,0.4)', borderRadius: '8px', padding: '12px', border: '1px solid var(--glass-border)' }}>
+                            {reviewFiles.map((file, idx) => (
+                                <div key={`${file.name}-${idx}`} style={{ padding: '8px 0', borderBottom: idx === reviewFiles.length - 1 ? 'none' : '1px solid var(--glass-border)', fontSize: '14px', fontWeight: 500 }}>
+                                    {file.name}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    <button
+                        className="btn"
+                        style={{ width: '100%', justifyContent: 'center', padding: '12px', marginBottom: '16px' }}
+                        onClick={handleReviewUpload}
+                        disabled={reviewLoading || reviewFiles.length === 0}
+                    >
+                        {reviewLoading ? '正在解析并写入评价数据库...' : '上传评价数据'}
+                    </button>
+
+                    {reviewMessage && (
+                        <div style={{
+                            padding: '12px', borderRadius: '8px', fontSize: '14px', textAlign: 'center',
+                            background: reviewMessage.includes('✅') ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                            color: reviewMessage.includes('✅') ? 'var(--success)' : 'var(--danger)',
+                        }}>
+                            {reviewMessage}
+                        </div>
+                    )}
+
+                    {reviewResults.length > 0 && (
+                        <div style={{ marginTop: '16px', maxHeight: '220px', overflowY: 'auto', background: 'rgba(255,255,255,0.38)', borderRadius: '10px', border: '1px solid var(--glass-border)', padding: '10px 12px' }}>
+                            {reviewResults.map((result, idx) => (
+                                <div key={`${result.filename}-${idx}`} style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', padding: '9px 0', borderBottom: idx === reviewResults.length - 1 ? 'none' : '1px solid rgba(224, 122, 95, 0.12)', fontSize: '13px' }}>
+                                    <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{result.filename}</span>
+                                    <span style={{ flex: '0 0 auto', color: result.status === 'success' ? 'var(--success)' : result.status === 'unmatched' ? 'var(--text-muted)' : 'var(--danger)', fontWeight: 700 }}>
+                                        {result.status === 'success' ? `写入 ${result.inserted_count || 0} 条` : result.message}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
                 {/* Batch Delete Section */}
                 <div className="glass-panel" style={{ marginTop: '0px' }}>
                     <h3 style={{ marginBottom: '16px', fontSize: '18px', fontWeight: '600', color: 'var(--danger)' }}>
                         <Trash2 size={20} style={{ verticalAlign: 'middle', marginRight: '8px' }} />
-                        4. 批量清除日期数据
+                        5. 批量清除日期数据
                     </h3>
                     <p style={{ marginBottom: '16px', color: 'var(--text-muted)', fontSize: '14px' }}>
                         选择要清除的日期，将会删除该日期的<b>所有数据</b>（商品数据 + 利润数据）。此操作不可撤销。

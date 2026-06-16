@@ -22,6 +22,26 @@ class ProductPoiMap(Base):
     poi_name = Column(String, index=True)
 
 
+class ProductReview(Base):
+    __tablename__ = "product_reviews"
+    __table_args__ = (
+        Index("ix_product_reviews_product_time", "product_id", "review_time"),
+        Index("ix_product_reviews_time_product", "review_time", "product_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    product_id = Column(String, ForeignKey("products.id"), index=True)
+    product_name = Column(String, index=True)
+    review_time = Column(DateTime, index=True)
+    rating = Column(Float, default=0)
+    content = Column(Text, default="")
+    source_product_name = Column(String, default="")
+    source_file = Column(String, default="")
+    imported_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    product = relationship("Product", backref="reviews")
+
+
 class DailyData(Base):
     __tablename__ = "daily_data"
     __table_args__ = (

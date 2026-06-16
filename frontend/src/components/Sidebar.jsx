@@ -8,6 +8,7 @@ import {
     Coins,
     FileUp,
     LayoutDashboard,
+    MessageSquare,
     MousePointerClick,
     RefreshCcw,
     ShoppingCart,
@@ -57,6 +58,10 @@ const Sidebar = () => {
                 <NavLink to="/deep-analysis" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
                     <BrainCircuit size={20} />
                     <span>深度分析</span>
+                </NavLink>
+                <NavLink to="/product-reviews" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+                    <MessageSquare size={20} />
+                    <span>评价分析</span>
                 </NavLink>
                 <NavLink to="/cloud-data" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
                     <CloudDownload size={20} />

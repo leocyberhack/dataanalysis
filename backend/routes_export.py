@@ -22,6 +22,7 @@ router = APIRouter()
 EXPORT_TABLES = [
     ("products", models.Product),
     ("product_poi_map", models.ProductPoiMap),
+    ("product_reviews", models.ProductReview),
     ("daily_data", models.DailyData),
     ("pending_orders", models.PendingOrder),
     ("plans", models.Plan),

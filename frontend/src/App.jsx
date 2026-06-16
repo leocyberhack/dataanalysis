@@ -10,6 +10,7 @@ const POIInsight = lazy(() => import('./pages/POIInsight'));
 const PlanSettings = lazy(() => import('./pages/PlanSettings'));
 const DeepAnalysis = lazy(() => import('./pages/DeepAnalysis'));
 const CloudDataExport = lazy(() => import('./pages/CloudDataExport'));
+const ProductReviews = lazy(() => import('./pages/ProductReviews'));
 
 function App() {
   return (
@@ -27,6 +28,7 @@ function App() {
                 <Route path="/poi/:module" element={<POIInsight />} />
                 <Route path="/plans" element={<PlanSettings />} />
                 <Route path="/deep-analysis" element={<DeepAnalysis />} />
+                <Route path="/product-reviews" element={<ProductReviews />} />
                 <Route path="/cloud-data" element={<CloudDataExport />} />
               </Routes>
             </Suspense>

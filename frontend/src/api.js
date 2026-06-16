@@ -4,6 +4,26 @@ const isLocalDevHost = ['localhost', '127.0.0.1'].includes(window.location.hostn
 const defaultApiUrl = isLocalDevHost
   ? `http://${window.location.hostname}:8001`
   : '';
+const normalizeApiBaseUrl = (url) => {
+  const rawUrl = (url || '').trim();
+  if (!rawUrl) {
+    return '';
+  }
+
+  try {
+    const parsedUrl = new URL(rawUrl, window.location.origin);
+    if (
+      window.location.protocol === 'https:'
+      && parsedUrl.protocol === 'http:'
+      && parsedUrl.hostname.endsWith('.zeabur.app')
+    ) {
+      parsedUrl.protocol = 'https:';
+    }
+    return parsedUrl.toString().replace(/\/$/, '');
+  } catch {
+    return rawUrl;
+  }
+};
 const GET_CACHE_TTL_MS = 30 * 1000;
 const LARGE_RESPONSE_CACHE_OPTIONS = { clone: false };
 const getResponseCache = new Map();
@@ -11,7 +31,7 @@ const inflightGetRequests = new Map();
 let cacheVersion = 0;
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || defaultApiUrl,
+  baseURL: normalizeApiBaseUrl(import.meta.env.VITE_API_URL || defaultApiUrl),
 });
 
 const sortParams = (params = {}) => Object.fromEntries(
@@ -118,6 +138,18 @@ export const uploadBatchData = async (items) => {
     formData.append('files', item.file);
   });
   const response = await api.post('/upload_batch', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  invalidateApiCache();
+  return response.data;
+};
+
+export const uploadProductReviews = async (files) => {
+  const formData = new FormData();
+  files.forEach((file) => {
+    formData.append('files', file);
+  });
+  const response = await api.post('/product_reviews/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
   invalidateApiCache();
@@ -287,6 +319,16 @@ export const getPoiInsight = async (startDate, endDate, previousStartDate, previ
     metrics: metrics.join(','),
   };
   return cachedGet('/poi/insight', params, GET_CACHE_TTL_MS, LARGE_RESPONSE_CACHE_OPTIONS);
+};
+
+export const getProductReviews = async ({ mode = 'product', productId = '', poiName = '' }) => {
+  const params = { mode };
+  if (mode === 'poi') {
+    params.poiName = poiName;
+  } else {
+    params.productId = productId;
+  }
+  return cachedGet('/product_reviews', params, GET_CACHE_TTL_MS, LARGE_RESPONSE_CACHE_OPTIONS);
 };
 
 export const deleteData = async (date) => {
